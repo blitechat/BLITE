@@ -129,6 +129,11 @@ function registerSocketListeners(socket: Socket): void {
   socket.on('disconnect', (reason) => {
     console.log('Socket disconnected:', reason)
     const voiceStore = useVoiceStore.getState()
+    // Don't cleanup if we're in the middle of connecting - let the join operation handle the error
+    if (voiceStore.isConnecting) {
+      console.log('[Socket] Socket disconnected during voice connection attempt - join will handle this')
+      return
+    }
     if (voiceStore.isConnected || voiceStore.currentChannelId) {
       cleanupVoice()
       voiceStore.setDisconnected()
@@ -322,7 +327,8 @@ function registerSocketListeners(socket: Socket): void {
       }
 
       // If this is a DM call and the other party left, end the call
-      if (voiceStore.currentServerId === 'dm') {
+      // But don't cleanup if we're still in the process of connecting
+      if (voiceStore.currentServerId === 'dm' && !voiceStore.isConnecting) {
         // In a DM call, if the other person leaves, we should disconnect too
         const remainingPeers = Object.keys(voiceStore.peers).filter(id => id !== userId)
         if (remainingPeers.length === 0) {

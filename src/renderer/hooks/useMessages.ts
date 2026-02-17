@@ -488,13 +488,13 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
           errorContent = '[Encryption keys not loaded - please log out and log back in]'
         } else if (err instanceof Error) {
           if (err.message.includes('No sender key')) {
-            errorContent = '[Could not decrypt - encryption keys for this sender are no longer available on this device]'
+            errorContent = '[Unable to decrypt - send any message to this chat to re-establish encryption for future messages]'
           } else if (err.message.includes('No ratchet session') || err.message.includes('previous session')) {
-            errorContent = '[This message is from a previous encryption session and is no longer stored on this device]'
+            errorContent = '[Old encrypted message - send any message to re-establish encryption for new messages]'
           } else if (err.message.includes('X3DH failed') || err.message.includes('No key bundle')) {
             errorContent = '[Key exchange pending - message will decrypt when keys sync]'
           } else if (err.message.includes('behind current') || err.message.includes('Ratchet decryption failed')) {
-            errorContent = '[This message is from a previous encryption session and is no longer stored on this device]'
+            errorContent = '[Old encrypted message - encryption session has advanced past this message]'
           }
         }
 

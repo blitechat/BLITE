@@ -41,6 +41,9 @@ let lastPacketLoss = 0
 // Join/leave lock to prevent race conditions
 let joinPromise: Promise<void> | null = null
 
+// Flag to prevent cleanup during join operation
+let isJoining = false
+
 // Audio level monitoring for speaking indicator
 let audioContext: AudioContext | null = null
 let analyserNode: AnalyserNode | null = null
@@ -338,6 +341,7 @@ export async function joinVoiceChannel(channelId: string, serverId: string): Pro
 async function performJoin(channelId: string, serverId: string): Promise<void> {
   const store = useVoiceStore.getState()
   store.setConnecting(channelId, serverId)
+  isJoining = true
 
   try {
     // 1. Join voice channel and get router capabilities
@@ -363,6 +367,11 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
     await device.load({ routerRtpCapabilities: joinResponse.routerRtpCapabilities })
     console.log('[Voice] Device loaded')
 
+    // Check if cleanup was called during async operation
+    if (!device) {
+      throw new Error('Voice connection was interrupted - please try again')
+    }
+
     // 3. Create send transport
     console.log('[Voice] Creating send transport...')
     const sendTransportData = await emit<{
@@ -372,6 +381,11 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
       dtlsParameters: any
     }>('voice:createTransport', { direction: 'send' })
     console.log('[Voice] Send transport created:', sendTransportData.id)
+
+    // Check again after async operation
+    if (!device) {
+      throw new Error('Voice connection was interrupted - please try again')
+    }
 
     // Enable encodedInsertableStreams on the PeerConnection so that
     // createEncodedStreams() can be called on senders/receivers for E2EE
@@ -493,7 +507,14 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
     // This ensures we have our key ready and can request peers' keys
     try {
       await initVoiceE2EE(channelId)
-      console.log('[Voice] E2EE initialized, proceeding to consume peers')
+      console.log('[Voice] E2EE initialized')
+      // Give a moment for key exchange to propagate before consuming peers
+      // This helps ensure peers have time to exchange ephemeral keys
+      if (joinResponse.peers.length > 0) {
+        console.log('[Voice] Waiting briefly for E2EE key exchange...')
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      console.log('[Voice] Proceeding to consume peers')
     } catch (err) {
       console.error('[Voice] E2EE init failed, continuing without E2EE:', err)
       // Continue without E2EE - audio/video still works
@@ -515,10 +536,12 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
       }
     }
 
+    isJoining = false
     store.setConnected()
     playCallConnectedSound()
   } catch (err: any) {
     console.error('Failed to join voice channel:', err)
+    isJoining = false
     store.setConnectionError(err.message || 'Failed to join voice channel')
     cleanup()
   }
@@ -898,16 +921,18 @@ export async function consumeProducer(producerId: string, producerUserId: string
     // This prevents the race condition where we set up decrypt transforms before keys arrive
     if (isInsertableStreamsSupported()) {
       console.log(`[Voice] Waiting for E2EE key from user ${producerUserId}...`)
-      const hasKey = await waitForPeerKey(producerUserId, 3000)
+      const hasKey = await waitForPeerKey(producerUserId, 5000)
 
       if (!hasKey) {
-        console.warn(`[Voice] Peer key not received within timeout, requesting explicitly...`)
+        console.warn(`[Voice] Peer key not received within 5s, requesting explicitly...`)
         await requestPeerKey(channelId, producerUserId)
 
-        // Wait a bit longer after requesting
-        const hasKeyAfterRequest = await waitForPeerKey(producerUserId, 2000)
+        // Wait longer after requesting - network might be slow
+        const hasKeyAfterRequest = await waitForPeerKey(producerUserId, 5000)
         if (!hasKeyAfterRequest) {
-          console.warn(`[Voice] ⚠ Still no key from ${producerUserId}, will drop encrypted frames until key arrives`)
+          console.warn(`[Voice] ⚠ Still no key from ${producerUserId} after 10s total, will drop encrypted frames until key arrives`)
+          // Try one more request in case the first was lost
+          await requestPeerKey(channelId, producerUserId)
         }
       }
     }
@@ -1086,6 +1111,7 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
   const store = useVoiceStore.getState()
   console.log('[Voice] Setting connecting state...')
   store.setConnecting(dmId, 'dm')
+  isJoining = true
 
   try {
     // Join DM voice channel (uses dmId as the channel identifier, 'dm' as serverId)
@@ -1108,6 +1134,11 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
     device = new Device()
     await device.load({ routerRtpCapabilities: joinResponse.routerRtpCapabilities })
 
+    // Check if cleanup was called during async operation
+    if (!device) {
+      throw new Error('Voice connection was interrupted - please try again')
+    }
+
     // Create send transport
     const sendTransportData = await emit<{
       id: string
@@ -1115,6 +1146,11 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
       iceCandidates: any[]
       dtlsParameters: any
     }>('voice:createTransport', { direction: 'send' })
+
+    // Check again after async operation
+    if (!device) {
+      throw new Error('Voice connection was interrupted - please try again')
+    }
 
     // Enable encodedInsertableStreams for E2EE on DM call transports
     const dmE2eeSettings = isInsertableStreamsSupported()
@@ -1257,6 +1293,11 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
     try {
       await initVoiceE2EE(dmId)
       console.log('[Voice] DM call E2EE initialized')
+      // Give a moment for key exchange to propagate before consuming peers
+      if (joinResponse.peers.length > 0) {
+        console.log('[Voice] Waiting briefly for E2EE key exchange...')
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
     } catch (err) {
       console.error('[Voice] DM call E2EE init failed, continuing without E2EE:', err)
       // Audio/video still works without E2EE
@@ -1278,11 +1319,13 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
       }
     }
 
+    isJoining = false
     store.setConnected()
     playCallConnectedSound()
     console.log('[Voice] ✓ DM call connected successfully')
   } catch (err: any) {
     console.error('[Voice] ✗ Failed to start DM call:', err)
+    isJoining = false
     store.setConnectionError(err.message || 'Failed to start call')
     cleanup()
     throw err // Re-throw so the calling code can handle it

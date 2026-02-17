@@ -734,6 +734,9 @@ export async function initVoiceE2EE(channelId: string): Promise<void> {
     // Generate fresh ephemeral DH key pair for this session
     const mySessionPubKey = initSessionKeyPair()
 
+    // CRITICAL: Flush any keys that arrived before session key pair was ready
+    await flushPendingIncomingKeys()
+
     // Generate AES voice key
     const { key, rawKey, keyId } = await generateVoiceKey()
     localKey = { key, rawKey, keyId }

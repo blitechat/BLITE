@@ -47,7 +47,9 @@ export const useAuthStore = create<AuthState>((set) => ({
     // Clear all stored encryption keys and caches
     clearKeyBundle()
     clearChannelKeyCache()
-    clearSentMessages() // Clear persistent sent message cache
+    // Note: We intentionally DO NOT clear the sent message cache (clearSentMessages())
+    // This allows users to see their message history after re-login.
+    // The cache is stored locally in IndexedDB and provides a better UX.
 
     // Clear auth state
     set({
