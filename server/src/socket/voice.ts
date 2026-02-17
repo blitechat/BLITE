@@ -628,6 +628,42 @@ export function registerVoiceHandlers(io: SocketServer, socket: AuthenticatedSoc
     }
   });
 
+  // ─── voice:ephemeral-pubkey (relay fresh DH public key for key exchange) ──
+  // Peers broadcast their ephemeral session public key on join so others can
+  // encrypt the AES voice key to them without using stale identity keys.
+  socket.on('voice:ephemeral-pubkey', ({ channelId, publicKey, targetUserId }: {
+    channelId: string; publicKey: string; targetUserId?: string;
+  }) => {
+    try {
+      const currentChannelId = getUserRoom(userId);
+      if (!currentChannelId || currentChannelId !== channelId) return;
+
+      const room = getRoom(channelId);
+      if (!room) return;
+
+      if (targetUserId) {
+        // Targeted: relay only to the specified peer (response to a broadcast)
+        const targetPeer = room.peers.get(targetUserId);
+        if (targetPeer) {
+          io.to(targetPeer.socketId).emit('voice:ephemeral-pubkey', {
+            fromUserId: userId,
+            publicKey,
+            isResponse: true,
+          });
+        }
+      } else {
+        // Broadcast: relay to all other peers in the channel
+        socket.to(`voice:${channelId}`).emit('voice:ephemeral-pubkey', {
+          fromUserId: userId,
+          publicKey,
+          isResponse: false,
+        });
+      }
+    } catch (error) {
+      console.error('[Voice] voice:ephemeral-pubkey relay error:', error);
+    }
+  });
+
   // ─── voice:request-e2ee-key (request a peer to send their E2EE key) ─────
   socket.on('voice:request-e2ee-key', ({ channelId, targetUserId }: {
     channelId: string; targetUserId: string;

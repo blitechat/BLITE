@@ -28,7 +28,6 @@ const SOCKET_URL = getSocketUrl()
 
 let socket: Socket | null = null
 let listenersRegistered = false
-let privateKeyUnsubscribe: (() => void) | null = null
 
 // Message queue for offline messages
 interface QueuedMessage {
@@ -62,12 +61,6 @@ export function connectSocket(): Socket {
     socket.removeAllListeners()
     socket.close()
     listenersRegistered = false
-  }
-
-  // Clean up any previous privateKey subscriber
-  if (privateKeyUnsubscribe) {
-    privateKeyUnsubscribe()
-    privateKeyUnsubscribe = null
   }
 
   socket = io(SOCKET_URL || undefined, {
@@ -296,12 +289,17 @@ function registerSocketListeners(socket: Socket): void {
       voiceStore.addPeer(userId, displayName)
       playUserJoinedSound()
 
-      // Distribute our voice E2EE key to the new peer
+      // Initiate ephemeral key exchange: send our session pubkey to the new peer.
+      // They will respond with their pubkey, which triggers distributeKeyToPeer.
       try {
-        const { distributeKeyToPeer } = await import('./e2ee/voiceE2EE')
-        await distributeKeyToPeer(channelId, userId)
+        const { getSessionPublicKey } = await import('./e2ee/voiceE2EE')
+        const myPubKey = getSessionPublicKey()
+        if (myPubKey) {
+          socket.emit('voice:ephemeral-pubkey', { channelId, publicKey: myPubKey, targetUserId: userId })
+          console.log(`[Socket] Sent ephemeral pubkey to newly joined peer ${userId}`)
+        }
       } catch (err) {
-        console.error('[Socket] Failed to distribute voice key to new peer:', err)
+        console.error('[Socket] Failed to send ephemeral pubkey to new peer:', err)
       }
     }
   })
@@ -372,89 +370,80 @@ function registerSocketListeners(socket: Socket): void {
     useVoiceStore.getState().setChannelOccupants(occupancy)
   })
 
-  // Voice E2EE: receive encrypted AES key from a peer
+  // Voice E2EE: receive encrypted AES key from a peer.
+  // fromPublicKey is now the sender's ephemeral session public key (not identity key).
   socket.on('voice:e2ee-key', async ({ fromUserId, fromPublicKey, encrypted, nonce, keyId }: {
     fromUserId: string; fromPublicKey: string | null; encrypted: string; nonce: string; keyId: number
   }) => {
     const voiceStore = useVoiceStore.getState()
-    // Accept keys during connecting phase too - peers send keys as soon as
-    // they see us join, which happens before we finish setup and set isConnected
     if (!voiceStore.isConnected && !voiceStore.isConnecting) return
 
     if (!fromPublicKey) {
-      console.warn('[Socket] Cannot decrypt voice E2EE key: sender public key missing')
-      return
-    }
-
-    const privateKey = useAuthStore.getState().privateKey
-    if (!privateKey) {
-      // Private key not loaded yet — buffer so we can process once it arrives
-      const { bufferIncomingKey } = await import('./e2ee/voiceE2EE')
-      bufferIncomingKey(fromUserId, encrypted, nonce, fromPublicKey, keyId)
+      console.warn('[Socket] Cannot decrypt voice E2EE key: sender ephemeral key missing')
       return
     }
 
     try {
       const { handlePeerVoiceKey } = await import('./e2ee/voiceE2EE')
-      await handlePeerVoiceKey(fromUserId, encrypted, nonce, fromPublicKey, privateKey, keyId)
+      await handlePeerVoiceKey(fromUserId, encrypted, nonce, fromPublicKey, keyId)
     } catch (err) {
       console.error('[Socket] Failed to handle voice E2EE key:', err)
     }
   })
 
-  // Voice E2EE: someone is requesting our key
+  // Voice E2EE: someone is requesting our key.
+  // Respond by initiating an ephemeral key exchange so they can receive our voice key.
   socket.on('voice:e2ee-key-requested', async ({ fromUserId, channelId }: {
     fromUserId: string; channelId: string
   }) => {
     const voiceStore = useVoiceStore.getState()
-    if (!voiceStore.isConnected || voiceStore.currentChannelId !== channelId) {
-      console.log(`[Socket] Ignoring key request: not in channel ${channelId}`)
-      return
-    }
-
-    const privateKey = useAuthStore.getState().privateKey
-    if (!privateKey) {
-      console.warn(`[Socket] Cannot send E2EE key to ${fromUserId}: private key not available`)
-      return
-    }
-
-    console.log(`[Socket] User ${fromUserId} requested our E2EE key for channel ${channelId}`)
+    if (!voiceStore.isConnected || voiceStore.currentChannelId !== channelId) return
 
     try {
-      const { distributeKeyToPeer } = await import('./e2ee/voiceE2EE')
+      const { getSessionPublicKey, distributeKeyToPeer } = await import('./e2ee/voiceE2EE')
+      const myPubKey = getSessionPublicKey()
+      if (myPubKey) {
+        socket.emit('voice:ephemeral-pubkey', { channelId, publicKey: myPubKey, targetUserId: fromUserId })
+      }
+      // Also try distributing if we already have their ephemeral key
       await distributeKeyToPeer(channelId, fromUserId)
-      console.log(`[Socket] ✓ Sent E2EE key to ${fromUserId} in response to request`)
     } catch (err) {
-      console.error('[Socket] Failed to send key in response to request:', err)
+      console.error('[Socket] Failed to respond to key request:', err)
     }
   })
 
-  // When private key becomes available while already in a voice channel, flush
-  // any buffered peer keys and redistribute our own key so E2EE activates late.
-  {
-    let prevPrivateKey: Uint8Array | null = useAuthStore.getState().privateKey
-    privateKeyUnsubscribe = useAuthStore.subscribe(async (state) => {
-      const { privateKey } = state
-      if (!privateKey || privateKey === prevPrivateKey) {
-        prevPrivateKey = privateKey
-        return
-      }
-      prevPrivateKey = privateKey
+  // Voice E2EE: receive a peer's ephemeral session public key.
+  // Store it, respond with our own (if this is a broadcast), then send them our AES voice key.
+  socket.on('voice:ephemeral-pubkey', async ({ fromUserId, publicKey, isResponse }: {
+    fromUserId: string; publicKey: string; isResponse: boolean
+  }) => {
+    const voiceStore = useVoiceStore.getState()
+    if (!voiceStore.isConnected && !voiceStore.isConnecting) return
 
-      const voiceStore = useVoiceStore.getState()
-      if (!voiceStore.isConnected || !voiceStore.currentChannelId) return
+    const channelId = voiceStore.currentChannelId
+    if (!channelId) return
 
-      console.log('[Socket] Private key now available while in voice — retrying E2EE key exchange')
-      try {
-        const { flushPendingIncomingKeys, distributeKeyToAllPeers } = await import('./e2ee/voiceE2EE')
-        await flushPendingIncomingKeys(privateKey)
-        await distributeKeyToAllPeers(voiceStore.currentChannelId)
-        useVoiceStore.getState().setVoiceE2EE(true)
-      } catch (err) {
-        console.error('[Socket] Failed to retry voice E2EE key exchange:', err)
+    try {
+      const { setPeerSessionKey, distributeKeyToPeer, getSessionPublicKey } = await import('./e2ee/voiceE2EE')
+
+      // Store this peer's ephemeral public key
+      setPeerSessionKey(fromUserId, publicKey)
+
+      // If this was a broadcast (not a targeted response), send our pubkey back
+      if (!isResponse) {
+        const myPubKey = getSessionPublicKey()
+        if (myPubKey) {
+          socket.emit('voice:ephemeral-pubkey', { channelId, publicKey: myPubKey, targetUserId: fromUserId })
+        }
       }
-    })
-  }
+
+      // Distribute our AES voice key to this peer now that we have their ephemeral key
+      await distributeKeyToPeer(channelId, fromUserId)
+      useVoiceStore.getState().setVoiceE2EE(true)
+    } catch (err) {
+      console.error('[Socket] Failed to handle ephemeral pubkey exchange:', err)
+    }
+  })
 
   // E2EE: member needs keys (new member joined server)
   socket.on('member:needs-keys', async ({ serverId, userId: newMemberId }: { serverId: string; userId: string }) => {
@@ -552,10 +541,6 @@ function registerSocketListeners(socket: Socket): void {
 }
 
 export function disconnectSocket(): void {
-  if (privateKeyUnsubscribe) {
-    privateKeyUnsubscribe()
-    privateKeyUnsubscribe = null
-  }
   if (socket) {
     socket.removeAllListeners()
     socket.disconnect()

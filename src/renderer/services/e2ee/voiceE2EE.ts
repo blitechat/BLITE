@@ -7,12 +7,12 @@
  * Frame format:
  *   [header (1 byte)][AES-GCM ciphertext + 16-byte tag][IV (12 bytes)][keyId (1 byte)]
  *
- * Key exchange uses nacl.box (existing identity keys) via socket relay.
+ * Key exchange uses ephemeral nacl.box (Curve25519 DH) key pairs generated
+ * fresh per voice session — independent of identity/migration keys.
  */
 import nacl from 'tweetnacl'
 import naclUtil from 'tweetnacl-util'
 import { getSocket } from '../socket'
-import { useAuthStore } from '../../stores/authStore'
 import { useVoiceStore } from '../../stores/voiceStore'
 
 const { encodeBase64, decodeBase64 } = naclUtil
@@ -45,7 +45,32 @@ const peerKeys = new Map<string, PeerKeyState>()
 // Previous peer keys kept during rotation grace period, indexed by `${userId}:${keyId}`
 const previousPeerKeys = new Map<string, { key: CryptoKey; expiry: number }>()
 
-// Incoming keys buffered when our private key was not yet available
+// ─── Ephemeral Session Keys ───────────────────────────────────────────────────
+// Fresh Curve25519 DH key pair per voice session — avoids any dependency on
+// identity keys (which may be stale, unset, or changed by migration).
+let sessionKeyPair: nacl.BoxKeyPair | null = null
+// Peers' ephemeral public keys received during this session
+const peerSessionPublicKeys = new Map<string, Uint8Array>()
+
+/** Generate a fresh ephemeral DH key pair for this voice session. Returns own public key (base64). */
+export function initSessionKeyPair(): string {
+  sessionKeyPair = nacl.box.keyPair()
+  peerSessionPublicKeys.clear()
+  return encodeBase64(sessionKeyPair.publicKey)
+}
+
+/** Store a peer's ephemeral public key received via socket. */
+export function setPeerSessionKey(userId: string, publicKeyB64: string): void {
+  peerSessionPublicKeys.set(userId, decodeBase64(publicKeyB64))
+  console.log(`[VoiceE2EE] Stored ephemeral session key from ${userId}`)
+}
+
+/** Return our own ephemeral public key (base64), or null if not initialized. */
+export function getSessionPublicKey(): string | null {
+  return sessionKeyPair ? encodeBase64(sessionKeyPair.publicKey) : null
+}
+
+// Buffered incoming voice keys received before our session key pair was ready
 interface BufferedKey {
   fromUserId: string
   encrypted: string
@@ -62,7 +87,6 @@ export function bufferIncomingKey(
   senderPublicKey: string,
   keyId: number
 ): void {
-  // Keep only the latest key per user — no need to accumulate rotations
   const idx = pendingIncomingKeys.findIndex(k => k.fromUserId === fromUserId)
   if (idx >= 0) {
     pendingIncomingKeys[idx] = { fromUserId, encrypted, nonce, senderPublicKey, keyId }
@@ -72,13 +96,13 @@ export function bufferIncomingKey(
   console.log(`[VoiceE2EE] Buffered incoming key from ${fromUserId} (pending: ${pendingIncomingKeys.length})`)
 }
 
-export async function flushPendingIncomingKeys(privateKey: Uint8Array): Promise<void> {
+export async function flushPendingIncomingKeys(): Promise<void> {
   if (pendingIncomingKeys.length === 0) return
   console.log(`[VoiceE2EE] Flushing ${pendingIncomingKeys.length} buffered peer keys`)
   const keys = pendingIncomingKeys.splice(0)
   for (const k of keys) {
     try {
-      await handlePeerVoiceKey(k.fromUserId, k.encrypted, k.nonce, k.senderPublicKey, privateKey, k.keyId)
+      await handlePeerVoiceKey(k.fromUserId, k.encrypted, k.nonce, k.senderPublicKey, k.keyId)
     } catch (err) {
       console.error(`[VoiceE2EE] Failed to process buffered key from ${k.fromUserId}:`, err)
     }
@@ -138,54 +162,24 @@ export async function generateVoiceKey(): Promise<{ key: CryptoKey; rawKey: Uint
 // ─── Key Distribution ────────────────────────────────────────────────────────
 
 /**
- * Encrypt our AES voice key for a single peer using nacl.box.
- */
-export function encryptVoiceKeyForPeer(
-  rawKey: Uint8Array,
-  peerPublicKey: string,
-  mySecretKey: Uint8Array
-): { encrypted: string; nonce: string } {
-  const nonce = nacl.randomBytes(nacl.box.nonceLength)
-  const pubKey = decodeBase64(peerPublicKey)
-  const ciphertext = nacl.box(rawKey, nonce, pubKey, mySecretKey)
-  if (!ciphertext) throw new Error('Failed to encrypt voice key for peer')
-  return {
-    encrypted: encodeBase64(ciphertext),
-    nonce: encodeBase64(nonce),
-  }
-}
-
-/**
- * Distribute our current voice key to all peers in the channel via socket relay.
+ * Distribute our current voice key to all peers who have already sent us
+ * their ephemeral session public key.
  */
 export async function distributeKeyToAllPeers(channelId: string): Promise<void> {
-  if (!localKey) return
-
-  const socket = getSocket()
-  if (!socket) return
-
-  const authState = useAuthStore.getState()
-  const privateKey = authState.privateKey
-  if (!privateKey) {
-    console.warn('[VoiceE2EE] No private key available, cannot distribute voice key')
-    return
-  }
-
-  const voiceStore = useVoiceStore.getState()
-  const peers = voiceStore.peers
+  if (!localKey || !sessionKeyPair) return
 
   const promises: Promise<void>[] = []
-  for (const userId of Object.keys(peers)) {
+  for (const userId of peerSessionPublicKeys.keys()) {
     promises.push(distributeKeyToPeer(channelId, userId))
   }
 
-  // Wait for all key distributions in parallel
   await Promise.all(promises)
   console.log(`[VoiceE2EE] Distributed key to ${promises.length} peers`)
 }
 
 /**
- * Send our voice key to a specific peer.
+ * Send our voice key to a specific peer using ephemeral session keys.
+ * Both sides must have exchanged ephemeral public keys first (via voice:ephemeral-pubkey).
  */
 export async function distributeKeyToPeer(channelId: string, targetUserId: string): Promise<void> {
   console.log(`[VoiceE2EE] distributeKeyToPeer called for ${targetUserId}`)
@@ -195,47 +189,39 @@ export async function distributeKeyToPeer(channelId: string, targetUserId: strin
     return
   }
 
+  if (!sessionKeyPair) {
+    console.log('[VoiceE2EE] No session key pair, cannot distribute')
+    return
+  }
+
+  const peerPubKey = peerSessionPublicKeys.get(targetUserId)
+  if (!peerPubKey) {
+    console.log(`[VoiceE2EE] No ephemeral session key for ${targetUserId} yet — waiting for key exchange`)
+    return
+  }
+
   const socket = getSocket()
   if (!socket) {
     console.log('[VoiceE2EE] No socket, cannot distribute')
     return
   }
 
-  const authState = useAuthStore.getState()
-  const privateKey = authState.privateKey
-  if (!privateKey) {
-    console.log('[VoiceE2EE] No private key, cannot distribute')
-    return
-  }
-
-  // We need the peer's public key. Request it from the server via the API.
-  // For now we send the encrypted key; the server attaches our publicKey.
   try {
-    const { userAPI } = await import('../api')
-    const profile = await userAPI.getProfile(targetUserId)
-    if (!profile.publicKey) {
-      console.warn(`[VoiceE2EE] Peer ${targetUserId} has no public key, skipping E2EE key distribution`)
-      return
-    }
+    // Encrypt AES voice key using peer's ephemeral public key and our ephemeral private key
+    const nonce = nacl.randomBytes(nacl.box.nonceLength)
+    const ciphertext = nacl.box(localKey.rawKey, nonce, peerPubKey, sessionKeyPair.secretKey)
+    if (!ciphertext) throw new Error('nacl.box returned null')
 
-    const { encrypted, nonce } = encryptVoiceKeyForPeer(
-      localKey.rawKey,
-      profile.publicKey,
-      privateKey
-    )
-
-    // Derive our own current public key from the private key so the recipient
-    // gets the authoritative key — not a stale value cached in socket.user.
-    const myPublicKey = encodeBase64(nacl.box.keyPair.fromSecretKey(privateKey).publicKey)
+    const mySessionPublicKey = encodeBase64(sessionKeyPair.publicKey)
 
     console.log(`[VoiceE2EE] Sending voice key to ${targetUserId} (keyId: ${localKey.keyId})`)
     socket.emit('voice:e2ee-key', {
       channelId,
       targetUserId,
-      encrypted,
-      nonce,
+      encrypted: encodeBase64(ciphertext),
+      nonce: encodeBase64(nonce),
       keyId: localKey.keyId,
-      senderPublicKey: myPublicKey,
+      senderPublicKey: mySessionPublicKey,
     })
   } catch (err) {
     console.error(`[VoiceE2EE] Failed to distribute key to ${targetUserId}:`, err)
@@ -244,22 +230,28 @@ export async function distributeKeyToPeer(channelId: string, targetUserId: strin
 
 /**
  * Handle receiving a peer's encrypted AES voice key.
+ * Decryption uses our ephemeral session private key and the sender's ephemeral public key.
  */
 export async function handlePeerVoiceKey(
   fromUserId: string,
   encrypted: string,
   nonce: string,
   senderPublicKey: string,
-  mySecretKey: Uint8Array,
   keyId: number
 ): Promise<void> {
   console.log(`[VoiceE2EE] Receiving voice key from ${fromUserId} (keyId: ${keyId})`)
+
+  if (!sessionKeyPair) {
+    console.error(`[VoiceE2EE] No session key pair — buffering key from ${fromUserId}`)
+    bufferIncomingKey(fromUserId, encrypted, nonce, senderPublicKey, keyId)
+    return
+  }
 
   const encBytes = decodeBase64(encrypted)
   const nonceBytes = decodeBase64(nonce)
   const pubKey = decodeBase64(senderPublicKey)
 
-  const rawKey = nacl.box.open(encBytes, nonceBytes, pubKey, mySecretKey)
+  const rawKey = nacl.box.open(encBytes, nonceBytes, pubKey, sessionKeyPair.secretKey)
   if (!rawKey) {
     console.error(`[VoiceE2EE] Failed to decrypt voice key from ${fromUserId}`)
     return
@@ -295,6 +287,7 @@ export async function handlePeerVoiceKey(
  */
 export function handlePeerLeft(userId: string): void {
   peerKeys.delete(userId)
+  peerSessionPublicKeys.delete(userId)
   // Also clean up any grace-period keys
   for (const key of previousPeerKeys.keys()) {
     if (key.startsWith(`${userId}:`)) {
@@ -738,26 +731,31 @@ export async function initVoiceE2EE(channelId: string): Promise<void> {
   }
 
   try {
+    // Generate fresh ephemeral DH key pair for this session
+    const mySessionPubKey = initSessionKeyPair()
+
+    // Generate AES voice key
     const { key, rawKey, keyId } = await generateVoiceKey()
     localKey = { key, rawKey, keyId }
+    console.log(`[VoiceE2EE] Generated local voice key (keyId: ${keyId}) and ephemeral DH key pair`)
 
-    console.log(`[VoiceE2EE] Generated local voice key (keyId: ${keyId})`)
-
-    // If private key isn't available yet, defer distribution — the socket.ts
-    // privateKey subscriber will call distributeKeyToAllPeers once it lands.
-    const privateKey = useAuthStore.getState().privateKey
-    if (!privateKey) {
-      console.warn('[VoiceE2EE] No private key at init — key distribution deferred until private key is available')
-      useVoiceStore.getState().setVoiceE2EE(false)
-      console.log('[VoiceE2EE] Voice E2EE initialized (distribution pending)')
-      return
+    // Broadcast our ephemeral public key to all peers in the room.
+    // When they receive it they will send their own key back, which triggers
+    // distributeKeyToPeer — so we don't need to call it here.
+    const socket = getSocket()
+    if (socket) {
+      socket.emit('voice:ephemeral-pubkey', { channelId, publicKey: mySessionPubKey })
+      console.log('[VoiceE2EE] Broadcast ephemeral session public key to peers')
     }
 
-    // Distribute to all current peers in the channel
-    await distributeKeyToAllPeers(channelId)
+    // For existing peers who have already sent us their ephemeral key (re-join scenario),
+    // distribute immediately.
+    if (peerSessionPublicKeys.size > 0) {
+      await distributeKeyToAllPeers(channelId)
+      useVoiceStore.getState().setVoiceE2EE(true)
+    }
 
-    useVoiceStore.getState().setVoiceE2EE(true)
-    console.log('[VoiceE2EE] Voice E2EE initialized')
+    console.log('[VoiceE2EE] Voice E2EE initialized (waiting for peer ephemeral key exchange)')
   } catch (err) {
     console.error('[VoiceE2EE] Failed to initialize:', err)
     useVoiceStore.getState().setVoiceE2EE(false)
@@ -769,8 +767,10 @@ export async function initVoiceE2EE(channelId: string): Promise<void> {
  */
 export function cleanupVoiceE2EE(): void {
   localKey = null
+  sessionKeyPair = null
   peerKeys.clear()
   previousPeerKeys.clear()
+  peerSessionPublicKeys.clear()
   pendingIncomingKeys.splice(0)
   useVoiceStore.getState().setVoiceE2EE(false)
   console.log('[VoiceE2EE] Cleaned up')
