@@ -1,0 +1,17 @@
+node_modules
+server/node_modules
+server/data
+server/uploads
+out
+dist
+dist-web
+release
+downloads
+build
+.claude
+*.db
+.env
+.git
+.vscode
+nul
+NUL

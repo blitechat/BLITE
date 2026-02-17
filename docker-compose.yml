@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  blite:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: blite
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=3001
+      - DB_PATH=/data/blite.db
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - blite-data:/data
+    ports:
+      - "${BLITE_PORT:-3001}:3001"
+      # mediasoup UDP ports (only used in full mode)
+      - "${MEDIASOUP_RTC_MIN_PORT:-40000}-${MEDIASOUP_RTC_MAX_PORT:-40100}:${MEDIASOUP_RTC_MIN_PORT:-40000}-${MEDIASOUP_RTC_MAX_PORT:-40100}/udp"
+    networks:
+      - blite-net
+
+  # Optional: Caddy reverse proxy for automatic HTTPS
+  # Uncomment the caddy service below if you have a domain name
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: blite-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #     - caddy-config:/config
+  #   networks:
+  #     - blite-net
+  #   depends_on:
+  #     - blite
+
+volumes:
+  blite-data:
+  # caddy-data:
+  # caddy-config:
+
+networks:
+  blite-net:

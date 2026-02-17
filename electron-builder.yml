@@ -1,0 +1,56 @@
+appId: com.blite.app
+productName: BLITE
+directories:
+  buildResources: build
+  output: release
+publish:
+  provider: generic
+  url: https://blite.chat/downloads
+files:
+  - out/**/*
+  - package.json
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!server/*'
+  - '!dist-web/*'
+  - '!downloads/*'
+  - '!release/*'
+  - '!scripts/*'
+  - '!public/*'
+  - '!node_modules/*'
+  - '!.claude/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.tsbuildinfo}'
+  - '!{.dockerignore,.env,.env.production,.gitignore.txt,.railwayignore,Dockerfile,railway.toml,tailwind.config.js,vite.config.web.ts,LOGO.png,VOICE_VIDEO_CONFIG.md}'
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+asarUnpack:
+  - '**/*.node'
+win:
+  executableName: BLITE
+  signingHashAlgorithms:
+    - sha256
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: blite-setup-win.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  oneClick: true
+  perMachine: false
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - dmg
+  artifactName: blite-setup-mac.${ext}
+linux:
+  target:
+    - AppImage
+  maintainer: blite
+  category: Network
+  artifactName: blite-setup-linux.${ext}

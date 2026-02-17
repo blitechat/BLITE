@@ -1,0 +1,10 @@
+{$DOMAIN:localhost} {
+	reverse_proxy blite:3001
+
+	# WebSocket support (Socket.IO)
+	@websockets {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	reverse_proxy @websockets blite:3001
+}
