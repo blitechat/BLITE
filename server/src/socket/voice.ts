@@ -598,8 +598,8 @@ export function registerVoiceHandlers(io: SocketServer, socket: AuthenticatedSoc
   });
 
   // ─── voice:e2ee-key (relay encrypted AES key to target peer) ─────
-  socket.on('voice:e2ee-key', ({ channelId, targetUserId, encrypted, nonce, keyId }: {
-    channelId: string; targetUserId: string; encrypted: string; nonce: string; keyId: number;
+  socket.on('voice:e2ee-key', ({ channelId, targetUserId, encrypted, nonce, keyId, senderPublicKey }: {
+    channelId: string; targetUserId: string; encrypted: string; nonce: string; keyId: number; senderPublicKey?: string;
   }) => {
     try {
       const currentChannelId = getUserRoom(userId);
@@ -612,10 +612,13 @@ export function registerVoiceHandlers(io: SocketServer, socket: AuthenticatedSoc
       const targetPeer = room.peers.get(targetUserId);
       if (!targetPeer) return;
 
-      // Relay the encrypted key blob - server cannot decrypt it
+      // Relay the encrypted key blob - server cannot decrypt it.
+      // Prefer the client-provided senderPublicKey (derived fresh from the
+      // sender's actual private key) over socket.user.publicKey, which may
+      // be stale if the user updated their identity key after connecting.
       io.to(targetPeer.socketId).emit('voice:e2ee-key', {
         fromUserId: userId,
-        fromPublicKey: socket.user.publicKey,
+        fromPublicKey: senderPublicKey || socket.user.publicKey,
         encrypted,
         nonce,
         keyId,

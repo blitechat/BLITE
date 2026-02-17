@@ -193,6 +193,9 @@ export default function LoginForm() {
       console.warn('[LoginForm] Failed to sync publicKey to profile:', err)
     }
 
+    // Reconnect socket so socket.user.publicKey is fresh
+    connectSocket()
+
     // Generate fresh OTPs for the new device and upload
     try {
       const newBundle = generateKeyBundle()
@@ -243,6 +246,9 @@ export default function LoginForm() {
       } catch (err) {
         console.warn('[LoginForm] Failed to sync publicKey to profile:', err)
       }
+
+      // Reconnect socket so socket.user.publicKey is fresh (it's read at connect time)
+      connectSocket()
 
       // Generate recovery key
       const recKey = generateRecoveryKey()
@@ -306,6 +312,9 @@ export default function LoginForm() {
     } catch (err) {
       console.warn('[LoginForm] Failed to sync publicKey to profile:', err)
     }
+
+    // Reconnect socket so socket.user.publicKey is fresh
+    connectSocket()
 
     // Generate recovery key for the new bundle
     const recKey = generateRecoveryKey()

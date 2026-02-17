@@ -224,6 +224,10 @@ export async function distributeKeyToPeer(channelId: string, targetUserId: strin
       privateKey
     )
 
+    // Derive our own current public key from the private key so the recipient
+    // gets the authoritative key — not a stale value cached in socket.user.
+    const myPublicKey = encodeBase64(nacl.box.keyPair.fromSecretKey(privateKey).publicKey)
+
     console.log(`[VoiceE2EE] Sending voice key to ${targetUserId} (keyId: ${localKey.keyId})`)
     socket.emit('voice:e2ee-key', {
       channelId,
@@ -231,6 +235,7 @@ export async function distributeKeyToPeer(channelId: string, targetUserId: strin
       encrypted,
       nonce,
       keyId: localKey.keyId,
+      senderPublicKey: myPublicKey,
     })
   } catch (err) {
     console.error(`[VoiceE2EE] Failed to distribute key to ${targetUserId}:`, err)
