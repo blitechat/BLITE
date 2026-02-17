@@ -89,7 +89,7 @@ export default function TermsOfServicePage() {
               Because BLITE is end-to-end encrypted, we cannot proactively monitor message content.
               Violations can be reported via our{' '}
               <a
-                href="https://github.com/zeckfar/BLITE"
+                href="https://github.com/blitechat/BLITE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blite-accent hover:underline"
@@ -148,12 +148,12 @@ export default function TermsOfServicePage() {
             <p>
               BLITE is open source software. The source code is available at{' '}
               <a
-                href="https://github.com/zeckfar/BLITE"
+                href="https://github.com/blitechat/BLITE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blite-accent hover:underline"
               >
-                github.com/zeckfar/BLITE
+                github.com/blitechat/BLITE
               </a>{' '}
               under its applicable open source license. You are free to self-host, audit, fork, and
               contribute to the codebase in accordance with that license.
@@ -197,7 +197,7 @@ export default function TermsOfServicePage() {
             <p>
               Questions about these Terms? Open an issue on our{' '}
               <a
-                href="https://github.com/zeckfar/BLITE"
+                href="https://github.com/blitechat/BLITE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blite-accent hover:underline"

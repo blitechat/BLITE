@@ -162,12 +162,12 @@ export default function PrivacyPolicyPage() {
               We use industry-standard security practices: bcrypt password hashing, HTTPS/TLS in transit,
               and Signal Protocol E2EE for message content. The source code is publicly auditable at{' '}
               <a
-                href="https://github.com/zeckfar/BLITE"
+                href="https://github.com/blitechat/BLITE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blite-accent hover:underline"
               >
-                github.com/zeckfar/BLITE
+                github.com/blitechat/BLITE
               </a>
               . If you discover a security vulnerability, please report it responsibly via GitHub.
             </p>
@@ -195,7 +195,7 @@ export default function PrivacyPolicyPage() {
             <p>
               Questions about this policy? Open an issue on our{' '}
               <a
-                href="https://github.com/zeckfar/BLITE"
+                href="https://github.com/blitechat/BLITE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blite-accent hover:underline"

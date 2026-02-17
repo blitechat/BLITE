@@ -7,7 +7,7 @@ BLITE is private by default — all message content is end-to-end encrypted, eve
 3 commands, no port forwarding required:
 
 ```bash
-git clone https://github.com/zeckfar/BLITE && cd blite
+git clone https://github.com/blitechat/BLITE && cd blite
 bash setup.sh
 # Pick "lite" mode when asked — done.
 ```
@@ -17,7 +17,7 @@ This gives you: text chat, E2EE, file sharing, communities, DMs.
 ## Full Setup (With Voice & Video)
 
 ```bash
-git clone https://github.com/zeckfar/BLITE && cd blite
+git clone https://github.com/blitechat/BLITE && cd blite
 bash setup.sh
 # Pick "full" mode when asked
 ```

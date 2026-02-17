@@ -92,7 +92,7 @@ We may update this policy. Continued use after changes constitutes acceptance.
 
 For privacy questions or to exercise your rights:
 - Email: privacy@blite.chat
-- GitHub: https://github.com/zeckfar/BLITE
+- GitHub: https://github.com/blitechat/BLITE
 
 ## Legal Basis (GDPR)
 

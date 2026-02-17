@@ -289,7 +289,7 @@ export default function LandingPage() {
                           It takes 3 commands with Docker.
                         </p>
                         <a
-                          href="https://github.com/zeckfar/BLITE/blob/master/SELF_HOST.md"
+                          href="https://github.com/blitechat/BLITE/blob/master/SELF_HOST.md"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 text-sm font-medium text-blite-gradient-start hover:underline"
@@ -526,7 +526,7 @@ export default function LandingPage() {
             <span>•</span>
             <Link to="/terms" className="hover:text-blite-text-primary transition-colors">Terms of Service</Link>
             <span>•</span>
-            <a href="https://github.com/zeckfar/BLITE" target="_blank" rel="noopener noreferrer" className="hover:text-blite-text-primary transition-colors">Source Code</a>
+            <a href="https://github.com/blitechat/BLITE" target="_blank" rel="noopener noreferrer" className="hover:text-blite-text-primary transition-colors">Source Code</a>
           </div>
           <div className="pt-6 border-t border-blite-border text-xs text-blite-text-muted max-w-2xl mx-auto">
             <p className="mb-3">
