@@ -35,6 +35,8 @@ export default function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [needsRecovery, setNeedsRecovery] = useState(false)
   const [needsMigration, setNeedsMigration] = useState(false)
+  const [migrationLoading, setMigrationLoading] = useState(false)
+  const [migrationError, setMigrationError] = useState('')
   const [migrationRecoveryKey, setMigrationRecoveryKey] = useState<string | null>(null)
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -199,53 +201,62 @@ export default function LoginForm() {
   }
 
   const handleMigration = async () => {
-    // Existing user without key bundle - generate one now
-    const bundle = generateKeyBundle()
-    const uploadable = bundleToUploadable(bundle)
-
-    // Upload key bundle
-    await keyAPI.uploadBundle(uploadable)
-
-    // Store locally
-    await storePrivateKey(bundle.identityKeyPair.secretKey)
-    setPrivateKey(bundle.identityKeyPair.secretKey)
-    setSigningKey(bundle.signingKeyPair.secretKey)
-    setSignedPreKeySecret(bundle.signedPreKey.keyPair.secretKey)
-
-    const serialized = serializeKeyBundle(bundle)
-    await storeKeyBundle(serialized)
-
-    // Initialize session DB before marking bundle as loaded
+    setMigrationLoading(true)
+    setMigrationError('')
     try {
-      const storeKey = await deriveSessionStoreKey(bundle.identityKeyPair.secretKey)
-      await initSessionDB(storeKey)
-    } catch (dbErr) {
-      console.error('[LoginForm] Session DB init failed after migration:', dbErr)
-    }
+      // Existing user without key bundle - generate one now
+      const bundle = generateKeyBundle()
+      const uploadable = bundleToUploadable(bundle)
 
-    setKeyBundleLoaded(true)
+      // Upload key bundle
+      await keyAPI.uploadBundle(uploadable)
 
-    // Generate recovery key
-    const recKey = generateRecoveryKey()
-    const recoverableKeys: RecoverableKeys = {
-      identitySecretKey: encodeBase64(bundle.identityKeyPair.secretKey),
-      identityPublicKey: encodeBase64(bundle.identityKeyPair.publicKey),
-      signingSecretKey: encodeBase64(bundle.signingKeyPair.secretKey),
-      signingPublicKey: encodeBase64(bundle.signingKeyPair.publicKey),
-      signedPreKeySecret: encodeBase64(bundle.signedPreKey.keyPair.secretKey),
-      signedPreKeyPublic: encodeBase64(bundle.signedPreKey.keyPair.publicKey),
-      signedPreKeyId: bundle.signedPreKey.id,
-      signedPreKeySig: encodeBase64(bundle.signedPreKey.signature),
-    }
-    const recoveryBlob = encryptKeysForRecovery(recKey, recoverableKeys)
-    try {
-      await keyAPI.uploadRecovery(recoveryBlob)
-    } catch {
-      // Non-critical
-    }
+      // Store locally
+      await storePrivateKey(bundle.identityKeyPair.secretKey)
+      setPrivateKey(bundle.identityKeyPair.secretKey)
+      setSigningKey(bundle.signingKeyPair.secretKey)
+      setSignedPreKeySecret(bundle.signedPreKey.keyPair.secretKey)
 
-    setNeedsMigration(false)
-    setMigrationRecoveryKey(recKey)
+      const serialized = serializeKeyBundle(bundle)
+      await storeKeyBundle(serialized)
+
+      // Initialize session DB before marking bundle as loaded
+      try {
+        const storeKey = await deriveSessionStoreKey(bundle.identityKeyPair.secretKey)
+        await initSessionDB(storeKey)
+      } catch (dbErr) {
+        console.error('[LoginForm] Session DB init failed after migration:', dbErr)
+      }
+
+      setKeyBundleLoaded(true)
+
+      // Generate recovery key
+      const recKey = generateRecoveryKey()
+      const recoverableKeys: RecoverableKeys = {
+        identitySecretKey: encodeBase64(bundle.identityKeyPair.secretKey),
+        identityPublicKey: encodeBase64(bundle.identityKeyPair.publicKey),
+        signingSecretKey: encodeBase64(bundle.signingKeyPair.secretKey),
+        signingPublicKey: encodeBase64(bundle.signingKeyPair.publicKey),
+        signedPreKeySecret: encodeBase64(bundle.signedPreKey.keyPair.secretKey),
+        signedPreKeyPublic: encodeBase64(bundle.signedPreKey.keyPair.publicKey),
+        signedPreKeyId: bundle.signedPreKey.id,
+        signedPreKeySig: encodeBase64(bundle.signedPreKey.signature),
+      }
+      const recoveryBlob = encryptKeysForRecovery(recKey, recoverableKeys)
+      try {
+        await keyAPI.uploadRecovery(recoveryBlob)
+      } catch {
+        // Non-critical
+      }
+
+      setNeedsMigration(false)
+      setMigrationRecoveryKey(recKey)
+    } catch (err: any) {
+      console.error('[LoginForm] Migration failed:', err)
+      setMigrationError(err?.response?.data?.error || err?.message || 'Key generation failed. Please try again.')
+    } finally {
+      setMigrationLoading(false)
+    }
   }
 
   const handleGenerateNewKeys = async () => {
@@ -328,11 +339,24 @@ export default function LoginForm() {
           <p className="text-sm text-blite-text-secondary mb-4">
             BLITE now uses enhanced end-to-end encryption. We need to generate new encryption keys for your account. Your existing messages will remain readable.
           </p>
+          {migrationError && (
+            <div className="mb-4 p-3 rounded-md bg-blite-danger/10 border border-blite-danger/30 text-blite-danger text-sm">
+              {migrationError}
+            </div>
+          )}
           <button
             onClick={handleMigration}
-            className="btn-primary w-full h-10 text-sm"
+            disabled={migrationLoading}
+            className="btn-primary w-full h-10 text-sm flex items-center justify-center gap-2"
           >
-            Generate Encryption Keys
+            {migrationLoading ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Generating Keys...
+              </>
+            ) : (
+              'Generate Encryption Keys'
+            )}
           </button>
         </div>
       </div>

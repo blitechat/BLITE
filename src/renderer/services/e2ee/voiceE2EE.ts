@@ -45,6 +45,46 @@ const peerKeys = new Map<string, PeerKeyState>()
 // Previous peer keys kept during rotation grace period, indexed by `${userId}:${keyId}`
 const previousPeerKeys = new Map<string, { key: CryptoKey; expiry: number }>()
 
+// Incoming keys buffered when our private key was not yet available
+interface BufferedKey {
+  fromUserId: string
+  encrypted: string
+  nonce: string
+  senderPublicKey: string
+  keyId: number
+}
+const pendingIncomingKeys: BufferedKey[] = []
+
+export function bufferIncomingKey(
+  fromUserId: string,
+  encrypted: string,
+  nonce: string,
+  senderPublicKey: string,
+  keyId: number
+): void {
+  // Keep only the latest key per user — no need to accumulate rotations
+  const idx = pendingIncomingKeys.findIndex(k => k.fromUserId === fromUserId)
+  if (idx >= 0) {
+    pendingIncomingKeys[idx] = { fromUserId, encrypted, nonce, senderPublicKey, keyId }
+  } else {
+    pendingIncomingKeys.push({ fromUserId, encrypted, nonce, senderPublicKey, keyId })
+  }
+  console.log(`[VoiceE2EE] Buffered incoming key from ${fromUserId} (pending: ${pendingIncomingKeys.length})`)
+}
+
+export async function flushPendingIncomingKeys(privateKey: Uint8Array): Promise<void> {
+  if (pendingIncomingKeys.length === 0) return
+  console.log(`[VoiceE2EE] Flushing ${pendingIncomingKeys.length} buffered peer keys`)
+  const keys = pendingIncomingKeys.splice(0)
+  for (const k of keys) {
+    try {
+      await handlePeerVoiceKey(k.fromUserId, k.encrypted, k.nonce, k.senderPublicKey, privateKey, k.keyId)
+    } catch (err) {
+      console.error(`[VoiceE2EE] Failed to process buffered key from ${k.fromUserId}:`, err)
+    }
+  }
+}
+
 // ─── Feature Detection ───────────────────────────────────────────────────────
 
 // Cache the result of the insertable streams check
@@ -698,6 +738,16 @@ export async function initVoiceE2EE(channelId: string): Promise<void> {
 
     console.log(`[VoiceE2EE] Generated local voice key (keyId: ${keyId})`)
 
+    // If private key isn't available yet, defer distribution — the socket.ts
+    // privateKey subscriber will call distributeKeyToAllPeers once it lands.
+    const privateKey = useAuthStore.getState().privateKey
+    if (!privateKey) {
+      console.warn('[VoiceE2EE] No private key at init — key distribution deferred until private key is available')
+      useVoiceStore.getState().setVoiceE2EE(false)
+      console.log('[VoiceE2EE] Voice E2EE initialized (distribution pending)')
+      return
+    }
+
     // Distribute to all current peers in the channel
     await distributeKeyToAllPeers(channelId)
 
@@ -716,6 +766,7 @@ export function cleanupVoiceE2EE(): void {
   localKey = null
   peerKeys.clear()
   previousPeerKeys.clear()
+  pendingIncomingKeys.splice(0)
   useVoiceStore.getState().setVoiceE2EE(false)
   console.log('[VoiceE2EE] Cleaned up')
 }

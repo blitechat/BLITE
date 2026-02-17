@@ -65,6 +65,7 @@ export default function App() {
   const setKeyBundleLoaded = useAuthStore((s) => s.setKeyBundleLoaded)
   const setLoading = useAuthStore((s) => s.setLoading)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const keyBundleLoaded = useAuthStore((s) => s.keyBundleLoaded)
 
   // Auto-login on mount: check for stored token
   useEffect(() => {
@@ -181,7 +182,7 @@ export default function App() {
       <Router>
         <Routes>
           <Route path="/login" element={
-            isAuthenticated ? <Navigate to="/app" replace /> : <LoginForm />
+            (isAuthenticated && keyBundleLoaded) ? <Navigate to="/app" replace /> : <LoginForm />
           } />
           <Route path="/register" element={
             isAuthenticated ? <Navigate to="/app" replace /> : <RegisterForm />

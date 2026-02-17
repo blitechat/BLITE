@@ -28,6 +28,7 @@ const SOCKET_URL = getSocketUrl()
 
 let socket: Socket | null = null
 let listenersRegistered = false
+let privateKeyUnsubscribe: (() => void) | null = null
 
 // Message queue for offline messages
 interface QueuedMessage {
@@ -61,6 +62,12 @@ export function connectSocket(): Socket {
     socket.removeAllListeners()
     socket.close()
     listenersRegistered = false
+  }
+
+  // Clean up any previous privateKey subscriber
+  if (privateKeyUnsubscribe) {
+    privateKeyUnsubscribe()
+    privateKeyUnsubscribe = null
   }
 
   socket = io(SOCKET_URL || undefined, {
@@ -374,9 +381,16 @@ function registerSocketListeners(socket: Socket): void {
     // they see us join, which happens before we finish setup and set isConnected
     if (!voiceStore.isConnected && !voiceStore.isConnecting) return
 
+    if (!fromPublicKey) {
+      console.warn('[Socket] Cannot decrypt voice E2EE key: sender public key missing')
+      return
+    }
+
     const privateKey = useAuthStore.getState().privateKey
-    if (!privateKey || !fromPublicKey) {
-      console.warn('[Socket] Cannot decrypt voice E2EE key: missing keys')
+    if (!privateKey) {
+      // Private key not loaded yet — buffer so we can process once it arrives
+      const { bufferIncomingKey } = await import('./e2ee/voiceE2EE')
+      bufferIncomingKey(fromUserId, encrypted, nonce, fromPublicKey, keyId)
       return
     }
 
@@ -398,6 +412,12 @@ function registerSocketListeners(socket: Socket): void {
       return
     }
 
+    const privateKey = useAuthStore.getState().privateKey
+    if (!privateKey) {
+      console.warn(`[Socket] Cannot send E2EE key to ${fromUserId}: private key not available`)
+      return
+    }
+
     console.log(`[Socket] User ${fromUserId} requested our E2EE key for channel ${channelId}`)
 
     try {
@@ -408,6 +428,33 @@ function registerSocketListeners(socket: Socket): void {
       console.error('[Socket] Failed to send key in response to request:', err)
     }
   })
+
+  // When private key becomes available while already in a voice channel, flush
+  // any buffered peer keys and redistribute our own key so E2EE activates late.
+  {
+    let prevPrivateKey: Uint8Array | null = useAuthStore.getState().privateKey
+    privateKeyUnsubscribe = useAuthStore.subscribe(async (state) => {
+      const { privateKey } = state
+      if (!privateKey || privateKey === prevPrivateKey) {
+        prevPrivateKey = privateKey
+        return
+      }
+      prevPrivateKey = privateKey
+
+      const voiceStore = useVoiceStore.getState()
+      if (!voiceStore.isConnected || !voiceStore.currentChannelId) return
+
+      console.log('[Socket] Private key now available while in voice — retrying E2EE key exchange')
+      try {
+        const { flushPendingIncomingKeys, distributeKeyToAllPeers } = await import('./e2ee/voiceE2EE')
+        await flushPendingIncomingKeys(privateKey)
+        await distributeKeyToAllPeers(voiceStore.currentChannelId)
+        useVoiceStore.getState().setVoiceE2EE(true)
+      } catch (err) {
+        console.error('[Socket] Failed to retry voice E2EE key exchange:', err)
+      }
+    })
+  }
 
   // E2EE: member needs keys (new member joined server)
   socket.on('member:needs-keys', async ({ serverId, userId: newMemberId }: { serverId: string; userId: string }) => {
@@ -505,6 +552,10 @@ function registerSocketListeners(socket: Socket): void {
 }
 
 export function disconnectSocket(): void {
+  if (privateKeyUnsubscribe) {
+    privateKeyUnsubscribe()
+    privateKeyUnsubscribe = null
+  }
   if (socket) {
     socket.removeAllListeners()
     socket.disconnect()
