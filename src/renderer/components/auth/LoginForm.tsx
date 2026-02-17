@@ -2,7 +2,7 @@ import React, { useState, FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@renderer/stores/authStore'
-import { authAPI, keyAPI } from '@renderer/services/api'
+import { authAPI, keyAPI, userAPI } from '@renderer/services/api'
 import { loadPrivateKey, storePrivateKey } from '@renderer/services/crypto'
 import { connectSocket } from '@renderer/services/socket'
 import {
@@ -186,6 +186,13 @@ export default function LoginForm() {
 
     setKeyBundleLoaded(true)
 
+    // Sync identity public key to users table (used by voice E2EE key exchange)
+    try {
+      await userAPI.updateProfile({ publicKey: keys.identityPublicKey })
+    } catch (err) {
+      console.warn('[LoginForm] Failed to sync publicKey to profile:', err)
+    }
+
     // Generate fresh OTPs for the new device and upload
     try {
       const newBundle = generateKeyBundle()
@@ -229,6 +236,13 @@ export default function LoginForm() {
       }
 
       setKeyBundleLoaded(true)
+
+      // Sync new identity public key to users table (used by voice E2EE key exchange)
+      try {
+        await userAPI.updateProfile({ publicKey: encodeBase64(bundle.identityKeyPair.publicKey) })
+      } catch (err) {
+        console.warn('[LoginForm] Failed to sync publicKey to profile:', err)
+      }
 
       // Generate recovery key
       const recKey = generateRecoveryKey()
@@ -285,6 +299,13 @@ export default function LoginForm() {
     }
 
     setKeyBundleLoaded(true)
+
+    // Sync new identity public key to users table (used by voice E2EE key exchange)
+    try {
+      await userAPI.updateProfile({ publicKey: encodeBase64(bundle.identityKeyPair.publicKey) })
+    } catch (err) {
+      console.warn('[LoginForm] Failed to sync publicKey to profile:', err)
+    }
 
     // Generate recovery key for the new bundle
     const recKey = generateRecoveryKey()

@@ -179,7 +179,7 @@ export const userAPI = {
   search: (query: string) =>
     api.get<{ users: UserProfile[] }>('/users/search', { params: { q: query } }).then((r) => r.data.users),
 
-  updateProfile: (data: { displayName?: string; avatarUrl?: string; customStatus?: string; phoneNumber?: string; bio?: string; bannerUrl?: string }) =>
+  updateProfile: (data: { displayName?: string; avatarUrl?: string; customStatus?: string; phoneNumber?: string; bio?: string; bannerUrl?: string; publicKey?: string }) =>
     api.put<{ user: UserProfile }>('/users/me', data).then((r) => r.data.user)
 }
 
