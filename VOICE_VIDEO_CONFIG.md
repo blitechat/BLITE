@@ -9,7 +9,7 @@ Voice and video chat uses Mediasoup SFU with WebRTC for real-time media streamin
 ```
 PORT=3001
 MEDIASOUP_LISTEN_IP=0.0.0.0
-MEDIASOUP_ANNOUNCED_IP=129.153.56.109
+MEDIASOUP_ANNOUNCED_IP=YOUR_SERVER_IP
 MEDIASOUP_RTC_MIN_PORT=40000
 MEDIASOUP_RTC_MAX_PORT=40100
 MEDIASOUP_NUM_WORKERS=1
@@ -27,8 +27,7 @@ CORS_ORIGIN=http://blite.chat,https://blite.chat
 
 ## Firewall Configuration
 
-### Local Firewall (iptables) ✓
-```bash
+### Local Firewall (iptables) ```bash
 sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 sudo iptables -I INPUT -p tcp --dport 3001 -j ACCEPT
 sudo iptables -I INPUT -p udp --dport 40000:40100 -j ACCEPT
@@ -60,7 +59,7 @@ Client Browser
     ↓ HTTP/WebSocket
 Cloudflare Proxy (if enabled)
     ↓ TCP 80
-Nginx (129.153.56.109:80)
+Nginx (YOUR_SERVER_IP:80)
     ↓ Reverse Proxy
 Node.js Server (localhost:3001)
 ```
@@ -69,12 +68,12 @@ Node.js Server (localhost:3001)
 ```
 Client Browser
     ↓ UDP (Direct P2P)
-Oracle Cloud Server (129.153.56.109:40000-40100)
+Oracle Cloud Server (YOUR_SERVER_IP:40000-40100)
     ↓
 Mediasoup SFU Worker
 ```
 
-**Important:** WebRTC media does NOT go through Cloudflare proxy. It connects directly to the announced IP (129.153.56.109) using UDP ports.
+**Important:** WebRTC media does NOT go through Cloudflare proxy. It connects directly to the announced IP (YOUR_SERVER_IP) using UDP ports.
 
 ## Client Configuration
 
@@ -141,7 +140,7 @@ Look for:
 2. **Check announced IP is correct**
    ```bash
    cat /home/ubuntu/BLITE/server/.env | grep ANNOUNCED_IP
-   # Should be: MEDIASOUP_ANNOUNCED_IP=129.153.56.109
+   # Should be: MEDIASOUP_ANNOUNCED_IP=YOUR_SERVER_IP
    ```
 
 3. **Check firewall allows UDP**
@@ -151,7 +150,7 @@ Look for:
 
 4. **Test UDP connectivity from client**
    - Use online WebRTC test tools
-   - Should connect to 129.153.56.109:40000-40100
+   - Should connect to YOUR_SERVER_IP:40000-40100
 
 ### Connection Issues Behind NAT
 
@@ -164,25 +163,25 @@ If clients behind strict NATs can't connect:
 
 - Cloudflare proxies HTTP/WebSocket (TCP 80/443)
 - Cloudflare does NOT proxy WebRTC (UDP)
-- WebRTC connects directly to 129.153.56.109
+- WebRTC connects directly to YOUR_SERVER_IP
 - Ensure Cloudflare doesn't block the public IP
 
 ## Current Status
 
-✓ Server running with Mediasoup
-✓ Announced IP configured: 129.153.56.109
-✓ UDP ports configured: 40000-40100
-✓ Local firewall allows UDP traffic
-✓ WebSocket signaling working
-✓ Voice channel joins working (confirmed in logs)
+Server running with Mediasoup
+Announced IP configured: YOUR_SERVER_IP
+UDP ports configured: 40000-40100
+Local firewall allows UDP traffic
+WebSocket signaling working
+Voice channel joins working (confirmed in logs)
 
-⚠ **Ensure Oracle Cloud NSG allows:**
+**Ensure Oracle Cloud NSG allows:**
 - TCP 80 (for HTTP)
 - UDP 40000-40100 (for WebRTC media)
 
 ## Testing Checklist
 
-- [ ] Can access http://blite.chat (or http://129.153.56.109)
+- [ ] Can access http://blite.chat (or http://YOUR_SERVER_IP)
 - [ ] Can create account and login
 - [ ] Can create/join server
 - [ ] Can join voice channel (no errors in console)

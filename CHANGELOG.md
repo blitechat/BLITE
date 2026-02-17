@@ -2,7 +2,7 @@
 
 ## [1.0.4] - 2026-02-13
 
-### 🔒 Security Enhancements
+### Security Enhancements
 - **Rate Limiting**: Added comprehensive rate limiting to prevent abuse
   - General API: 100 requests per 15 minutes
   - Authentication: 10 attempts per 15 minutes
@@ -14,7 +14,7 @@
 - **Input Validation**: Added express-validator for comprehensive input sanitization
 - **File Upload Validation**: Restricted file types and added MIME type checking
 
-### 🚀 Performance Optimizations
+### Performance Optimizations
 - **Auto-scaling Workers**: Mediasoup workers now auto-scale based on CPU cores (max 8)
 - **Dead Worker Recovery**: Automatic replacement of crashed mediasoup workers
 - **Database Optimization**: Enhanced SQLite performance with optimized pragmas
@@ -24,23 +24,23 @@
 - **Expanded Port Range**: RTC ports expanded from 101 to 10,000 (40000-49999)
 - **Connection Pooling**: Improved database connection management
 
-### 🛡️ Reliability Improvements
+### Reliability Improvements
 - **Graceful Shutdown**: Proper cleanup of connections and workers on shutdown
 - **Error Handling**: Better uncaught exception and unhandled rejection handling
 - **Health Monitoring**: Enhanced health check endpoint with memory and uptime metrics
 - **Metrics Endpoint**: Added `/api/metrics` for monitoring CPU, memory, and uptime
 
-### 📊 Monitoring & Observability
+### Monitoring & Observability
 - **Structured Logging**: Added structured logger with log levels
 - **Performance Metrics**: Basic performance monitoring endpoints
 - **Worker Status**: Real-time mediasoup worker health tracking
 
-### 🔧 Infrastructure Improvements
+### Infrastructure Improvements
 - **Environment Validation**: Better environment variable handling
 - **Configuration Optimization**: Auto-detect optimal worker count
 - **Memory Management**: Proper cleanup to prevent memory leaks
 
-### 📝 Documentation
+### Documentation
 - Added comprehensive `INFRASTRUCTURE_ANALYSIS.md` with:
   - Security vulnerability assessment
   - Performance bottleneck analysis
@@ -48,16 +48,16 @@
   - Deployment checklist
   - Maintenance guidelines
 
-### 🐛 Bug Fixes
+### Bug Fixes
 - Fixed mediasoup worker crashes causing reduced capacity
 - Fixed potential memory leaks in voice connections
 - Fixed CORS configuration for Electron desktop app
 - Fixed link preview timeout issues
 
-### ⚡ Breaking Changes
+### Breaking Changes
 None
 
-### 🔄 Migration Guide
+### Migration Guide
 1. Update `.env` file with new variables (see `.env.example`)
 2. Ensure `JWT_SECRET` is set to a secure random string in production
 3. Set `MEDIASOUP_ANNOUNCED_IP` to your server's public IP

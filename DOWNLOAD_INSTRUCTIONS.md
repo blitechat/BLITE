@@ -16,9 +16,9 @@ New applications without an Extended Validation certificate trigger Windows Smar
 
 ## Is it Safe?
 
-- ✅ Open source code available on GitHub
-- ✅ Built from verified source
-- ✅ No telemetry or tracking
-- ✅ End-to-end encrypted messaging
+- Open source code available on GitHub
+- Built from verified source
+- No telemetry or tracking
+- End-to-end encrypted messaging
 
 You can verify the installer hash matches our published checksums at blite.chat/downloads/latest.yml

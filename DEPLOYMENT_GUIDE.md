@@ -1,6 +1,6 @@
 # BLITE v1.0.4 Deployment Guide
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Node.js 20+ (mediasoup requires Node 22+, but works with 20)
@@ -10,7 +10,7 @@
 
 ---
 
-## 📋 Step-by-Step Deployment
+## Step-by-Step Deployment
 
 ### 1. Server Setup
 
@@ -284,7 +284,7 @@ sudo nano /etc/logrotate.d/blite
 
 ---
 
-## 🔍 Verification
+## Verification
 
 ### Check Service Status
 ```bash
@@ -320,7 +320,7 @@ curl http://localhost:3001/api/metrics
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Voice/Video Not Working
 
@@ -372,7 +372,7 @@ Edit `/opt/blite/server/src/middleware/rateLimiter.ts`:
 
 ---
 
-## 📊 Monitoring
+## Monitoring
 
 ### Check Logs
 ```bash
@@ -408,7 +408,7 @@ Check logs for:
 
 ---
 
-## 🔄 Updates
+## Updates
 
 ### Pull Latest Changes
 ```bash
@@ -433,7 +433,7 @@ Currently handled automatically via `server/src/db/connection.ts`
 
 ---
 
-## 🔐 Security Checklist
+## Security Checklist
 
 - [ ] JWT_SECRET is a strong random string (64+ characters)
 - [ ] HTTPS/TLS is enabled with valid certificate
@@ -447,7 +447,7 @@ Currently handled automatically via `server/src/db/connection.ts`
 
 ---
 
-## 📈 Performance Tuning
+## Performance Tuning
 
 ### For High Traffic (100+ concurrent users)
 
@@ -468,7 +468,7 @@ sqlite.pragma('cache_size = -128000'); // 128MB
 
 ---
 
-## 🆘 Emergency Procedures
+## Emergency Procedures
 
 ### Service Won't Start
 ```bash
@@ -517,7 +517,7 @@ sudo systemctl start blite
 
 ---
 
-## 📞 Support
+## Support
 
 For issues:
 1. Check logs first

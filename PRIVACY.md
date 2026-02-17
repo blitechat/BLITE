@@ -58,8 +58,8 @@ BLITE is an open-source, end-to-end encrypted communication platform. This Priva
 
 BLITE does **not sell** your data. We may share data:
 - **Legal Requirements**: We must comply with valid law enforcement requests and court orders. However, due to end-to-end encryption, we can only provide:
-  - ✅ **Metadata**: Who communicated with whom, timestamps, IP addresses, server membership, account information
-  - ❌ **Message Content**: Mathematically impossible to access - we do not have decryption keys
+  - **Metadata**: Who communicated with whom, timestamps, IP addresses, server membership, account information
+  - **Message Content**: Mathematically impossible to access - we do not have decryption keys
   - This is a fundamental limitation (and feature) of E2E encryption
 - **Self-Hosted Instances**: If you use a self-hosted instance, the instance operator controls all data and legal compliance
 
