@@ -57,6 +57,36 @@ export function queuePendingProducer(producerId: string, userId: string): void {
 }
 
 /**
+ * Wait for E2EE key exchange to complete with all pending producer owners.
+ * This ensures we can decrypt their audio when we consume their producers.
+ */
+async function waitForPendingProducerKeys(): Promise<void> {
+  if (pendingProducers.length === 0) return
+
+  const { waitForPeerKey, hasPeerKey } = await import('./e2ee/voiceE2EE')
+  const uniqueUserIds = [...new Set(pendingProducers.map(p => p.userId))]
+
+  console.log(`[Voice] Waiting for E2EE keys from ${uniqueUserIds.length} pending producer owner(s)...`)
+
+  // Wait for keys from all pending producer owners
+  const keyWaitPromises = uniqueUserIds.map(async (userId) => {
+    if (hasPeerKey(userId)) {
+      console.log(`[Voice] Already have key for ${userId}`)
+      return true
+    }
+    console.log(`[Voice] Waiting for key from ${userId}...`)
+    const hasKey = await waitForPeerKey(userId, 8000) // Longer timeout for initial key exchange
+    if (!hasKey) {
+      console.warn(`[Voice] ⚠ Still no key from ${userId} after 8s - may have audio issues`)
+    }
+    return hasKey
+  })
+
+  await Promise.all(keyWaitPromises)
+  console.log('[Voice] E2EE key exchange complete for all pending producers')
+}
+
+/**
  * Consume all producers that were queued while we were still connecting.
  */
 async function drainPendingProducers(): Promise<void> {
@@ -566,11 +596,8 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
     isJoining = false
     store.setConnected()
 
-    // Wait briefly for E2EE key exchange before draining pending producers
-    if (pendingProducers.length > 0) {
-      console.log('[Voice] Waiting for E2EE key exchange before draining pending producers...')
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
+    // Wait for E2EE key exchange with all pending producer owners
+    await waitForPendingProducerKeys()
 
     // Drain any producers that arrived during the connecting phase
     await drainPendingProducers()
@@ -1359,11 +1386,8 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
     isJoining = false
     store.setConnected()
 
-    // Wait briefly for E2EE key exchange before draining pending producers (critical for DM calls)
-    if (pendingProducers.length > 0) {
-      console.log('[Voice] Waiting for E2EE key exchange before draining pending producers...')
-      await new Promise(resolve => setTimeout(resolve, 500))
-    }
+    // Wait for E2EE key exchange with all pending producer owners (critical for DM calls)
+    await waitForPendingProducerKeys()
 
     // Drain any producers that arrived during the connecting phase (critical for DM calls)
     await drainPendingProducers()

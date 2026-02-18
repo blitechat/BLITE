@@ -1,6 +1,6 @@
 {
   "name": "blite",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Privacy-first encrypted messaging platform",
   "main": "./out/main/index.js",
   "scripts": {
