@@ -15,6 +15,24 @@ const CHAIN_KEY_CONSTANT = new Uint8Array([0x01])
 const MESSAGE_KEY_CONSTANT = new Uint8Array([0x02])
 const MAX_SKIP = 100
 
+/**
+ * Create a canonical session ID that's the same regardless of who initiates.
+ * Uses lexicographically sorted user IDs to ensure both parties use the same ID.
+ */
+export function createCanonicalSessionId(userId1: string, userId2: string): string {
+  const sorted = [userId1, userId2].sort()
+  return `${sorted[0]}:${sorted[1]}`
+}
+
+/**
+ * Determine if a user is the initiator based on the canonical session ID.
+ * The user whose ID comes first lexicographically is always the initiator.
+ * This ensures both parties agree on who is the initiator.
+ */
+export function isCanonicalInitiator(myUserId: string, otherUserId: string): boolean {
+  return myUserId < otherUserId
+}
+
 export interface RatchetSession {
   sessionId: string
   peerId: string

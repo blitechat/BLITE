@@ -8,12 +8,14 @@ import { decryptChannel, decryptDM, decryptKeyForUser } from '@renderer/services
 import {
   getSession,
   saveSession,
+  deleteSession,
   respondX3DH,
   initSession as initRatchetSession,
   advanceRecvChain,
   decryptWithMessageKey,
   getSenderKeyState,
   saveSenderKeyState,
+  deleteSenderKeyState,
   createSenderKeyState,
   advanceSenderRecvChain,
   decryptWithSenderKey,
@@ -23,6 +25,8 @@ import {
   isSessionDBReady,
   initSessionDB,
   deriveSessionStoreKey,
+  createCanonicalSessionId,
+  isCanonicalInitiator,
 } from '@renderer/services/e2ee'
 import { storeSentMessage, getSentMessage } from '@renderer/services/sentMessageStore'
 import type { Message } from '@shared/types'
@@ -36,6 +40,9 @@ interface UseMessagesReturn {
 }
 
 const channelKeyCache: Record<string, Uint8Array> = {}
+
+// Dedupe dm:session-reset signals — don't spam the sender for every message in a batch
+const dmResetSentAt = new Map<string, number>()
 
 /**
  * Lazily ensure the session DB is initialized.
@@ -184,11 +191,15 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
 
     let session = await getSession(senderId)
 
-    // If this is an X3DH initial message (has ephemeral key)
-    if (parsed.ek && !session) {
-      console.log('[Decrypt] Receiving X3DH initial message from', senderId)
+    /**
+     * Attempt to create a new session from X3DH handshake info in the message.
+     * Called when no session exists or when an existing session fails to decrypt.
+     */
+    const attemptX3DH = async (): Promise<typeof session> => {
+      if (!parsed.ek) return null
 
-      // Load our key bundle to respond to X3DH
+      console.log('[Decrypt] Attempting X3DH session from message handshake for', senderId)
+
       const storedBundle = await loadKeyBundle()
       if (!storedBundle) {
         console.error('[Decrypt] No key bundle found for X3DH response')
@@ -213,40 +224,79 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
       try {
         const senderBundle = await keyAPI.getBundle(senderId)
         senderIdentityKey = senderBundle.identityKey
-        console.log('[Decrypt] Got sender identity key from bundle')
       } catch (err) {
         console.warn('[Decrypt] Could not fetch sender bundle, falling back to profile:', err)
-        // Fallback to user profile public key
         const profile = await userAPI.getProfile(senderId)
         senderIdentityKey = profile.publicKey
-        console.log('[Decrypt] Got sender identity key from profile')
       }
 
-      try {
-        const x3dhResult = await respondX3DH({
-          myIdentitySecret: bundle.identityKeyPair.secretKey,
-          mySignedPreKeySecret: bundle.signedPreKey.keyPair.secretKey,
-          myOneTimePreKeySecret: otpSecret,
-          senderIdentityKey,
-          senderEphemeralKey: parsed.ek,
-        })
+      const x3dhResult = await respondX3DH({
+        myIdentitySecret: bundle.identityKeyPair.secretKey,
+        mySignedPreKeySecret: bundle.signedPreKey.keyPair.secretKey,
+        myOneTimePreKeySecret: otpSecret,
+        senderIdentityKey,
+        senderEphemeralKey: parsed.ek,
+      })
 
-        session = await initRatchetSession(
-          parsed.sid,
-          senderId,
-          x3dhResult.sharedSecret,
-          false
-        )
-        console.log('[Decrypt] X3DH session initialized successfully')
-      } catch (err) {
-        console.error('[Decrypt] X3DH failed:', err)
-        throw new Error(`X3DH failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      // Use canonical session ID and initiator flag to match the sender's session
+      const canonicalSessionId = createCanonicalSessionId(userRef.current.id, senderId)
+      const amInitiator = isCanonicalInitiator(userRef.current.id, senderId)
+
+      // Validate that sender used the canonical format (log warning if not, for debugging)
+      if (parsed.sid !== canonicalSessionId) {
+        console.warn(`[Decrypt] Sender used non-canonical session ID: ${parsed.sid}, expected: ${canonicalSessionId}`)
+      }
+
+      const newSession = await initRatchetSession(
+        canonicalSessionId,
+        senderId,
+        x3dhResult.sharedSecret,
+        amInitiator
+      )
+      console.log('[Decrypt] X3DH session initialized successfully with sessionId:', canonicalSessionId, 'amInitiator:', amInitiator)
+      return newSession
+    }
+
+    /**
+     * Signal the sender to clear their stale session so their next message
+     * triggers a fresh X3DH handshake that we can respond to.
+     * Deduped: only send once per sender per 30 seconds.
+     */
+    const requestSenderReset = async () => {
+      const now = Date.now()
+      const lastReset = dmResetSentAt.get(senderId) || 0
+      if (now - lastReset < 30000) return // already sent recently
+      dmResetSentAt.set(senderId, now)
+
+      try {
+        const { getSocket } = await import('@renderer/services/socket')
+        const sock = getSocket()
+        if (sock) {
+          sock.emit('dm:session-reset', { targetUserId: senderId })
+          console.log(`[Decrypt] Sent dm:session-reset to ${senderId}`)
+        }
+      } catch {
+        // Non-critical
       }
     }
 
+    // If no session exists, try X3DH if available
     if (!session) {
-      console.error('[Decrypt] No ratchet session for peer', senderId, '- message may be out of order or keys missing')
-      throw new Error('No ratchet session for peer - send a new message to re-establish encryption')
+      if (parsed.ek) {
+        try {
+          session = await attemptX3DH()
+        } catch (err) {
+          console.error('[Decrypt] X3DH failed:', err)
+          throw new Error(`X3DH failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        }
+      }
+      if (!session) {
+        // No session and no X3DH info — the sender is using a stale session.
+        // Tell them to reset so their next message starts a fresh handshake.
+        await requestSenderReset()
+        console.error('[Decrypt] No ratchet session for peer', senderId, '- requested sender to reset')
+        throw new Error('No ratchet session for peer - send a new message to re-establish encryption')
+      }
     }
 
     try {
@@ -255,7 +305,33 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
       return decryptWithMessageKey(encryptedContent, parsed.n, messageKey)
     } catch (err) {
       console.error('[Decrypt] Ratchet decryption failed:', err)
-      // If counter is behind, this is likely an old message after session reset
+
+      // If the message carries X3DH handshake info, the existing session is likely
+      // stale. Delete it and retry with a fresh session from the handshake.
+      if (parsed.ek) {
+        console.log('[Decrypt] Existing session failed, retrying with X3DH handshake')
+        try {
+          await deleteSession(senderId)
+          const freshSession = await attemptX3DH()
+          if (freshSession) {
+            const { messageKey, session: updatedSession } = await advanceRecvChain(freshSession, parsed.c)
+            await saveSession(updatedSession)
+            return decryptWithMessageKey(encryptedContent, parsed.n, messageKey)
+          }
+        } catch (retryErr) {
+          console.error('[Decrypt] X3DH retry also failed:', retryErr)
+        }
+      }
+
+      // Session is out of sync — clear it and tell the sender to reset too.
+      try {
+        await deleteSession(senderId)
+        console.log(`[Decrypt] Cleared stale ratchet session for peer ${senderId}`)
+      } catch (delErr) {
+        console.error('[Decrypt] Failed to delete stale session:', delErr)
+      }
+      await requestSenderReset()
+
       if (err instanceof Error && err.message.includes('behind current')) {
         throw new Error('Message from a previous session (encryption keys changed)')
       }
@@ -299,10 +375,34 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
               throw new Error('Cannot get sender public key')
             }
 
-            const senderKey = decryptSenderKeyFromUser(parts[0], parts[1], senderPubKey, pk)
-            senderState = createSenderKeyState(chId, senderId, senderKey)
-            // Persist the sender key state so we don't need to fetch again
-            await saveSenderKeyState(senderState)
+            try {
+              const senderKey = decryptSenderKeyFromUser(parts[0], parts[1], senderPubKey, pk)
+              senderState = createSenderKeyState(chId, senderId, senderKey)
+              // Persist the sender key state so we don't need to fetch again
+              await saveSenderKeyState(senderState)
+            } catch (decryptErr) {
+              // nacl.box.open failed — sender or receiver keys changed since the
+              // encrypted sender key was uploaded. Delete stale local state and
+              // ask the sender to re-distribute their key for our current public key.
+              console.warn('[Decrypt] Sender key decryption failed (keypair mismatch), requesting rekey from', senderId)
+              await deleteSenderKeyState(chId, senderId)
+
+              // Also clear from the in-memory channel key cache
+              const cacheKey = `${chId}:${senderId}`
+              delete channelKeyCache[cacheKey]
+
+              try {
+                const { getSocket } = await import('@renderer/services/socket')
+                const sock = getSocket()
+                if (sock) {
+                  sock.emit('channel:rekey-request', { channelId: chId, senderId })
+                }
+              } catch {
+                // Non-critical
+              }
+
+              throw new Error('Failed to decrypt sender key — requested re-distribution from sender')
+            }
           }
         }
       } catch (err) {
@@ -313,9 +413,54 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
 
     if (!senderState) throw new Error('No sender key state')
 
-    const { messageKey, state: updatedState } = await advanceSenderRecvChain(senderState, parsed.c)
-    await saveSenderKeyState(updatedState)
-    return decryptWithSenderKey(encryptedContent, parsed.n, messageKey)
+    try {
+      const { messageKey, state: updatedState } = await advanceSenderRecvChain(senderState, parsed.c)
+      await saveSenderKeyState(updatedState)
+      return decryptWithSenderKey(encryptedContent, parsed.n, messageKey)
+    } catch (err) {
+      // "counter behind" means the sender regenerated their key (counter reset to 0)
+      // but we still have the old state at a higher counter. Clear and re-fetch.
+      if (err instanceof Error && err.message.includes('behind current')) {
+        console.warn('[Decrypt] Sender key counter behind — sender likely regenerated key, re-fetching for', senderId)
+        await deleteSenderKeyState(chId, senderId)
+        const cacheKey = `${chId}:${senderId}`
+        delete channelKeyCache[cacheKey]
+
+        try {
+          const keyData = await channelKeyAPI.getKey(chId, senderId)
+          if (keyData?.encryptedKey) {
+            const parts = keyData.encryptedKey.split(':')
+            if (parts.length === 2) {
+              let senderPubKey: string
+              try {
+                const profile = await userAPI.getProfile(senderId)
+                senderPubKey = profile.publicKey
+              } catch {
+                throw new Error('Cannot get sender public key')
+              }
+              const senderKey = decryptSenderKeyFromUser(parts[0], parts[1], senderPubKey, pk)
+              const freshState = createSenderKeyState(chId, senderId, senderKey)
+              const { messageKey, state: updatedState } = await advanceSenderRecvChain(freshState, parsed.c)
+              await saveSenderKeyState(updatedState)
+              return decryptWithSenderKey(encryptedContent, parsed.n, messageKey)
+            }
+          }
+        } catch (retryErr) {
+          console.error('[Decrypt] Re-fetch sender key also failed:', retryErr)
+          // Request rekey from sender
+          try {
+            const { getSocket } = await import('@renderer/services/socket')
+            const sock = getSocket()
+            if (sock) {
+              sock.emit('channel:rekey-request', { channelId: chId, senderId })
+            }
+          } catch {
+            // Non-critical
+          }
+        }
+      }
+      throw err
+    }
   }
 
   const decryptMessagesRef = useRef<(msgs: Message[], chId: string) => Promise<Message[]>>(null as any)
@@ -480,7 +625,7 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
         results.push({ ...msg, content, sender })
       } catch (err) {
         console.error(`[Decrypt] Failed to decrypt message ${msg.id}:`, err)
-        console.error(`[Decrypt] Message details: version=${parseNonceVersion(msg.nonce).version}, senderId=${msg.senderId}, channelId=${chId}, isDM=${isDM}, hasPrivateKey=${!!privateKeyRef.current}, nonce=${msg.nonce?.substring(0, 80)}`)
+        console.error(`[Decrypt] Message details: version=${parseNonceVersion(msg.nonce).version}, senderId=${msg.senderId}, channelId=${chId}, isDM=${isDM}, hasPrivateKey=${!!privateKeyRef.current}, nonce=${msg.nonce?.substring(0, 200)}`)
 
         // Provide a user-friendly error message
         let errorContent = '[This message could not be decrypted - it may be outside your local message history]'

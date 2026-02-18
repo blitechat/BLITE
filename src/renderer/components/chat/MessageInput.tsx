@@ -22,6 +22,8 @@ import {
   advanceSenderChain,
   encryptWithSenderKey,
   distributeSenderKey,
+  createCanonicalSessionId,
+  isCanonicalInitiator,
 } from '@renderer/services/e2ee'
 import { cacheSentMessageById } from '@renderer/hooks/useMessages'
 import EmojiPicker from '@renderer/components/common/EmojiPicker'
@@ -123,11 +125,14 @@ export default function MessageInput({ channelId, channelName, isDM = false }: M
               myIdentitySecret: privateKey,
               recipientBundle: bundle,
             })
+            // Use canonical session ID and initiator flag so both parties have the same session
+            const sessionId = createCanonicalSessionId(user.id, otherUser.id)
+            const amInitiator = isCanonicalInitiator(user.id, otherUser.id)
             session = await initRatchetSession(
-              `${user.id}:${otherUser.id}`,
+              sessionId,
               otherUser.id,
               x3dhResult.sharedSecret,
-              true
+              amInitiator
             )
             await saveSession(session)
 
@@ -191,6 +196,13 @@ export default function MessageInput({ channelId, channelName, isDM = false }: M
     if (keyBundleLoaded) {
       try {
         let senderState = await getSenderKeyState(channelId, user.id)
+
+        // Check if existing sender key needs refresh (e.g. our public key changed since creation)
+        // If the state has no originalKey, it predates the fix and should be regenerated
+        if (senderState && !senderState.originalKey) {
+          console.log('[Encrypt] Sender key state missing originalKey — regenerating')
+          senderState = null
+        }
 
         if (!senderState) {
           // Generate and distribute a sender key

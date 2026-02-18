@@ -41,6 +41,33 @@ let lastPacketLoss = 0
 // Join/leave lock to prevent race conditions
 let joinPromise: Promise<void> | null = null
 
+// Buffer for producers received during the connecting phase (before isConnected).
+// In DM calls both sides join nearly simultaneously, so voice:newProducer can
+// arrive before performDMJoin/performJoin finishes. Without buffering these are
+// silently dropped and the peer's audio is never consumed.
+const pendingProducers: Array<{ producerId: string; userId: string }> = []
+
+/**
+ * Queue a producer to be consumed once the connection is fully established.
+ * Called from the socket handler when voice:newProducer arrives during isConnecting.
+ */
+export function queuePendingProducer(producerId: string, userId: string): void {
+  pendingProducers.push({ producerId, userId })
+  console.log(`[Voice] Queued pending producer ${producerId} from ${userId} (still connecting)`)
+}
+
+/**
+ * Consume all producers that were queued while we were still connecting.
+ */
+async function drainPendingProducers(): Promise<void> {
+  if (pendingProducers.length === 0) return
+  console.log(`[Voice] Draining ${pendingProducers.length} pending producer(s)`)
+  while (pendingProducers.length > 0) {
+    const { producerId, userId } = pendingProducers.shift()!
+    await consumeProducer(producerId, userId)
+  }
+}
+
 // Flag to prevent cleanup during join operation
 let isJoining = false
 
@@ -538,6 +565,10 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
 
     isJoining = false
     store.setConnected()
+
+    // Drain any producers that arrived during the connecting phase
+    await drainPendingProducers()
+
     playCallConnectedSound()
   } catch (err: any) {
     console.error('Failed to join voice channel:', err)
@@ -1321,6 +1352,10 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
 
     isJoining = false
     store.setConnected()
+
+    // Drain any producers that arrived during the connecting phase (critical for DM calls)
+    await drainPendingProducers()
+
     playCallConnectedSound()
     console.log('[Voice] ✓ DM call connected successfully')
   } catch (err: any) {

@@ -18,6 +18,7 @@ export interface SenderKeyState {
   channelId: string
   senderId: string
   chainKey: string     // base64 - current chain key
+  originalKey?: string // base64 - original sender key (before any chain advancement)
   counter: number
   createdAt: string
   updatedAt: string
@@ -43,6 +44,7 @@ export function createSenderKeyState(
     channelId,
     senderId,
     chainKey: encodeBase64(senderKey),
+    originalKey: encodeBase64(senderKey),
     counter: 0,
     createdAt: now,
     updatedAt: now,

@@ -37,6 +37,8 @@ export {
   advanceRecvChain,
   encryptWithMessageKey,
   decryptWithMessageKey,
+  createCanonicalSessionId,
+  isCanonicalInitiator,
 } from './ratchet'
 export type { RatchetSession } from './ratchet'
 

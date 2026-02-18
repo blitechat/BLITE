@@ -345,6 +345,10 @@ function registerSocketListeners(socket: Socket): void {
     const voiceStore = useVoiceStore.getState()
     if (voiceStore.isConnected) {
       consumeProducer(producerId, userId)
+    } else if (voiceStore.isConnecting) {
+      // Buffer producers that arrive during connection phase (critical for DM calls)
+      const { queuePendingProducer } = await import('./voiceService')
+      queuePendingProducer(producerId, userId)
     }
   })
 
@@ -484,7 +488,34 @@ function registerSocketListeners(socket: Socket): void {
 
         try {
           const naclUtil = await import('tweetnacl-util')
-          const senderKey = naclUtil.decodeBase64(state.chainKey)
+          // Use originalKey (the unadvanced sender key) so receivers start at counter=0.
+          // Fallback to chainKey for old states that lack originalKey.
+          const keyToDistribute = state.originalKey || state.chainKey
+          const senderKey = naclUtil.decodeBase64(keyToDistribute)
+
+          // If no originalKey exists (old state), the chainKey has already been advanced
+          // and won't work for new members. Regenerate and redistribute to ALL members.
+          if (!state.originalKey) {
+            const { generateSenderKey, createSenderKeyState: createNewState, distributeSenderKey } = await import('./e2ee')
+            const newKey = generateSenderKey()
+            const newState = createNewState(channel.id, currentUser.id, newKey)
+
+            // Distribute to ALL members (not just the new one)
+            const memberList = await (await import('./api')).serverAPI.getMembers(serverId)
+            const memberData = memberList
+              .filter((m: any) => m.user?.publicKey && m.userId !== currentUser.id)
+              .map((m: any) => ({ id: m.userId, publicKey: m.user!.publicKey }))
+            const keys = distributeSenderKey(newKey, memberData, privateKey)
+            if (keys.length > 0) {
+              await channelKeyAPI.setKeys(channel.id, keys, currentUser.id)
+            }
+
+            // Save the new state with originalKey
+            const { saveSenderKeyState } = await import('./e2ee')
+            await saveSenderKeyState(newState)
+            continue
+          }
+
           const { encrypted, nonce } = encryptSenderKeyForUser(senderKey, memberPubKey, privateKey)
           await channelKeyAPI.setKeys(channel.id, [{
             userId: newMemberId,
@@ -496,6 +527,82 @@ function registerSocketListeners(socket: Socket): void {
       }
     } catch (err) {
       console.error('[Socket] Failed to distribute keys to new member:', err)
+    }
+  })
+
+  // E2EE: the receiver couldn't decrypt our DM — our session is stale.
+  // Delete it so our next message triggers a fresh X3DH handshake.
+  socket.on('dm:session-reset', async ({ fromUserId }: { fromUserId: string }) => {
+    const currentUser = useAuthStore.getState().user
+    if (!currentUser || fromUserId === currentUser.id) return
+
+    try {
+      const { deleteSession } = await import('./e2ee')
+      await deleteSession(fromUserId)
+      console.log(`[Socket] Deleted stale DM session for peer ${fromUserId} (requested by receiver)`)
+    } catch (err) {
+      console.error('[Socket] Failed to delete DM session on reset request:', err)
+    }
+  })
+
+  // E2EE: another user is requesting our sender key (their decryption failed)
+  socket.on('channel:rekey-response', async ({ channelId, senderId, encryptedKey }: {
+    channelId: string; senderId: string; encryptedKey: string
+  }) => {
+    // Another user re-encrypted their sender key for us — store it
+    const currentUser = useAuthStore.getState().user
+    const pk = useAuthStore.getState().privateKey
+    if (!currentUser || !pk || senderId === currentUser.id) return
+
+    try {
+      const { decryptSenderKeyFromUser, createSenderKeyState, saveSenderKeyState } = await import('./e2ee')
+      const { userAPI } = await import('./api')
+
+      const parts = encryptedKey.split(':')
+      if (parts.length !== 2) return
+
+      const profile = await userAPI.getProfile(senderId)
+      const senderKey = decryptSenderKeyFromUser(parts[0], parts[1], profile.publicKey, pk)
+      const newState = createSenderKeyState(channelId, senderId, senderKey)
+      await saveSenderKeyState(newState)
+      console.log(`[Socket] Received re-keyed sender key from ${senderId} for channel ${channelId}`)
+    } catch (err) {
+      console.error('[Socket] Failed to handle rekey response:', err)
+    }
+  })
+
+  // E2EE: someone is requesting our sender key because decryption failed
+  socket.on('channel:rekey-request', async ({ channelId, requesterId }: {
+    channelId: string; requesterId: string
+  }) => {
+    const currentUser = useAuthStore.getState().user
+    const pk = useAuthStore.getState().privateKey
+    if (!currentUser || !pk || requesterId === currentUser.id) return
+
+    try {
+      const { getSenderKeyState, encryptSenderKeyForUser } = await import('./e2ee')
+      const { userAPI, channelKeyAPI } = await import('./api')
+
+      const state = await getSenderKeyState(channelId, currentUser.id)
+      if (!state) return
+
+      const naclUtil = await import('tweetnacl-util')
+      const keyToSend = state.originalKey || state.chainKey
+      const senderKey = naclUtil.decodeBase64(keyToSend)
+
+      // Get requester's current public key
+      const profile = await userAPI.getProfile(requesterId)
+      if (!profile.publicKey) return
+
+      const { encrypted, nonce } = encryptSenderKeyForUser(senderKey, profile.publicKey, pk)
+      await channelKeyAPI.setKeys(channelId, [{
+        userId: requesterId,
+        encryptedKey: `${encrypted}:${nonce}`,
+      }])
+
+      console.log(`[Socket] Re-distributed sender key to ${requesterId} for channel ${channelId}`)
+    } catch (err) {
+      console.error('[Socket] Failed to handle rekey request:', err)
     }
   })
 

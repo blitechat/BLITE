@@ -36,6 +36,7 @@ export const registerValidation = [
     .isLength({ min: 1, max: 50 })
     .withMessage('Display name must be 1-50 characters'),
   body('email')
+    .optional({ values: 'falsy' })
     .trim()
     .isEmail()
     .normalizeEmail()

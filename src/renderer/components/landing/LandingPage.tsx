@@ -150,7 +150,7 @@ export default function LandingPage() {
               What They're <span className="text-red-400">Really</span> Taking
             </h2>
             <p className="text-blite-text-secondary text-lg">
-              When a product is free, you're the product
+              Your messages belong to you — not us, not advertisers, not anyone
             </p>
           </div>
 

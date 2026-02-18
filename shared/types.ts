@@ -3,7 +3,7 @@ export interface User {
   id: string
   username: string
   displayName: string
-  email: string
+  email: string | null
   phoneNumber: string | null
   avatarUrl: string | null
   publicKey: string
@@ -44,7 +44,7 @@ export interface LoginRequest {
 
 export interface RegisterRequest {
   username: string
-  email: string
+  email?: string
   password: string
   displayName: string
   publicKey: string

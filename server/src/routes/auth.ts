@@ -21,8 +21,8 @@ router.post('/register', registerLimiter, registerValidation, async (req: Reques
     const { username, email, password, displayName, publicKey, phoneNumber, signingKey, keyBundle } = req.body;
 
     // Validate required fields
-    if (!username || !email || !password) {
-      res.status(400).json({ error: 'Username, email, and password are required' });
+    if (!username || !password) {
+      res.status(400).json({ error: 'Username and password are required' });
       return;
     }
 
@@ -32,8 +32,8 @@ router.post('/register', registerLimiter, registerValidation, async (req: Reques
       return;
     }
 
-    // Validate email format
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // Validate email format (if provided)
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       res.status(400).json({ error: 'Invalid email format' });
       return;
     }
@@ -56,16 +56,18 @@ router.post('/register', registerLimiter, registerValidation, async (req: Reques
       return;
     }
 
-    // Check if email already exists
-    const [existingEmail] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
+    // Check if email already exists (if provided)
+    if (email) {
+      const [existingEmail] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
 
-    if (existingEmail) {
-      res.status(409).json({ error: 'Email already registered' });
-      return;
+      if (existingEmail) {
+        res.status(409).json({ error: 'Email already registered' });
+        return;
+      }
     }
 
     // Validate phone number format (optional)
@@ -85,7 +87,7 @@ router.post('/register', registerLimiter, registerValidation, async (req: Reques
       id: userId,
       username,
       displayName: displayName || username,
-      email,
+      email: email || null,
       passwordHash,
       publicKey: publicKey || null,
       signingKey: signingKey || null,
@@ -129,7 +131,7 @@ router.post('/register', registerLimiter, registerValidation, async (req: Reques
         id: userId,
         username,
         displayName: displayName || username,
-        email,
+        email: email || null,
         phoneNumber: phoneNumber || null,
         avatarUrl: null,
         publicKey: publicKey || null,

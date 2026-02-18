@@ -104,6 +104,26 @@ export function initializeSocketIO(httpServer: HttpServer): SocketServer {
         }
       });
 
+      // E2EE: relay rekey request to the target sender's personal room
+      socket.on('channel:rekey-request', (payload: { channelId: string; senderId: string }) => {
+        if (payload.channelId && payload.senderId) {
+          io.to(`user:${payload.senderId}`).emit('channel:rekey-request', {
+            channelId: payload.channelId,
+            requesterId: userId,
+          });
+        }
+      });
+
+      // E2EE: relay DM session reset to the target user
+      // When a receiver can't decrypt, they ask the sender to clear their stale session
+      socket.on('dm:session-reset', (payload: { targetUserId: string }) => {
+        if (payload.targetUserId) {
+          io.to(`user:${payload.targetUserId}`).emit('dm:session-reset', {
+            fromUserId: userId,
+          });
+        }
+      });
+
       // Handle joining a server room (after accepting an invite)
       socket.on('server:join', async (payload: { serverId: string }) => {
         if (payload.serverId) {

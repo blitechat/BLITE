@@ -49,8 +49,8 @@ export default function RegisterForm() {
     e.preventDefault()
     setError('')
 
-    if (!username.trim() || !displayName.trim() || !email.trim() || !password || !confirmPassword) {
-      setError('Please fill in all fields.')
+    if (!username.trim() || !displayName.trim() || !password || !confirmPassword) {
+      setError('Please fill in all required fields.')
       return
     }
 
@@ -103,7 +103,7 @@ export default function RegisterForm() {
       const response = await authAPI.register({
         username: username.trim(),
         displayName: displayName.trim(),
-        email: email.trim(),
+        ...(email.trim() ? { email: email.trim() } : {}),
         password,
         publicKey: encodeBase64(bundle.identityKeyPair.publicKey),
         signingKey: encodeBase64(bundle.signingKeyPair.publicKey),
@@ -255,7 +255,7 @@ export default function RegisterForm() {
 
                 <div>
                   <label htmlFor="reg-email" className="block text-xs font-semibold text-blite-text-secondary uppercase tracking-wide mb-1.5">
-                    Email
+                    Email <span className="normal-case font-normal text-blite-text-muted">(optional)</span>
                   </label>
                   <input
                     id="reg-email"

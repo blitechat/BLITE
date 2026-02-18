@@ -22,6 +22,8 @@ import {
   advanceSenderChain,
   encryptWithSenderKey,
   distributeSenderKey,
+  createCanonicalSessionId,
+  isCanonicalInitiator,
 } from '@renderer/services/e2ee'
 
 export default function ForwardModal() {
@@ -89,11 +91,14 @@ export default function ForwardModal() {
                 myIdentitySecret: privateKey,
                 recipientBundle: bundle,
               })
+              // Use canonical session ID and initiator flag so both parties have the same session
+              const sessionId = createCanonicalSessionId(user.id, otherUser.id)
+              const amInitiator = isCanonicalInitiator(user.id, otherUser.id)
               session = await initRatchetSession(
-                `${user.id}:${otherUser.id}`,
+                sessionId,
                 otherUser.id,
                 x3dhResult.sharedSecret,
-                true
+                amInitiator
               )
               await saveSession(session)
               const { messageKey, session: updated } = await advanceSendChain(session)
