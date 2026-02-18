@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Plus,
   Settings,
+  HelpCircle,
   Mic,
   MicOff,
   Headphones,
@@ -652,6 +653,14 @@ function UserBar() {
               disabled={!isVoiceConnected}
             >
               {isDeafened ? <EarOff size={16} /> : <Headphones size={16} />}
+            </button>
+          </Tooltip>
+          <Tooltip content="Help & Feedback" position="top">
+            <button
+              onClick={() => openModal('feedback')}
+              className="p-2 rounded-lg text-blite-text-muted hover:text-blite-text-primary hover:bg-blite-bg-hover transition-colors"
+            >
+              <HelpCircle size={16} />
             </button>
           </Tooltip>
           <Tooltip content="User Settings" position="top">

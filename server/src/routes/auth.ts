@@ -3,10 +3,11 @@ import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection';
 import { users, prekeyBundles, oneTimePrekeys } from '../db/schema';
-import { eq, or } from 'drizzle-orm';
+import { eq, or, count } from 'drizzle-orm';
 import { signToken } from '../utils/jwt';
 import { authMiddleware } from '../middleware/auth';
 import { BCRYPT_ROUNDS } from '../config';
+import { sendTelegram } from '../utils/telegram';
 import { authLimiter, registerLimiter } from '../middleware/rateLimiter';
 import { registerValidation, loginValidation } from '../middleware/validation';
 
@@ -95,6 +96,13 @@ router.post('/register', registerLimiter, registerValidation, async (req: Reques
       status: 'online',
       createdAt: now,
     });
+
+    // Notify owner via Telegram
+    const [{ count: totalUsers }] = await db.select({ count: count() }).from(users);
+    const timeStr = new Date().toUTCString().replace(' GMT', ' UTC');
+    await sendTelegram(
+      `🎉 New user signed up\n\n<b>Username:</b> @${username}\n<b>Display name:</b> ${displayName || username}\n<b>Time:</b> ${timeStr}\n<b>Total users:</b> ${totalUsers}`
+    );
 
     // If key bundle provided, store prekey bundle and OTPs
     if (keyBundle && keyBundle.identityKey && keyBundle.signedPreKey) {

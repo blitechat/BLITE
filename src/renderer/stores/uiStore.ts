@@ -10,6 +10,7 @@ type ModalType =
   | 'userSettings'
   | 'addFriend'
   | 'inbox'
+  | 'feedback'
   | null
 
 type View = 'servers' | 'dms'

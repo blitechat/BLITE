@@ -32,7 +32,7 @@ sqlite.exec(`
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
+    email TEXT UNIQUE,
     password_hash TEXT NOT NULL,
     avatar_url TEXT,
     public_key TEXT,
@@ -284,6 +284,20 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_audit_logs_server_id ON audit_logs(server_id);
+`);
+
+// Migration: create feedback table
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    username TEXT NOT NULL,
+    type TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    description TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id);
 `);
 
 // Migration: create push_subscriptions table

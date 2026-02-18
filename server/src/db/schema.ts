@@ -228,6 +228,17 @@ export const auditLogs = sqliteTable('audit_logs', {
   serverIdIdx: index('audit_logs_server_id_idx').on(table.serverId),
 }));
 
+// ─── Feedback ───────────────────────────────────────────────────────────────
+export const feedback = sqliteTable('feedback', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  username: text('username').notNull(),
+  type: text('type').notNull(), // 'bug' | 'feature' | 'general'
+  subject: text('subject').notNull(),
+  description: text('description').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 // ─── Push Subscriptions ───────────────────────────────────────────────────
 export const pushSubscriptions = sqliteTable('push_subscriptions', {
   id: text('id').primaryKey(),

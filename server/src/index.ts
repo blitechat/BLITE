@@ -25,6 +25,7 @@ import blockRoutes from './routes/blocks';
 import keyRoutes from './routes/keys';
 import roleRoutes from './routes/roles';
 import notificationRoutes from './routes/notifications';
+import feedbackRoutes from './routes/feedback';
 
 // Initialize the database (connection.ts auto-creates tables on import)
 import './db/connection';
@@ -108,6 +109,7 @@ app.use('/api/blocks', blockRoutes);   // /api/blocks
 app.use('/api/keys', keyRoutes);       // /api/keys (E2EE key bundles & recovery)
 app.use('/api', roleRoutes);           // /api/servers/:serverId/roles, /api/roles/:roleId
 app.use('/api/notifications', notificationRoutes); // /api/notifications/*
+app.use('/api/feedback', feedbackRoutes);         // /api/feedback
 
 // 404 handler for unknown API routes
 app.use('/api/*', (_req, res) => {

@@ -22,6 +22,7 @@ import AudioRenderer from '@renderer/components/voice/AudioRenderer'
 import QuickSwitcher from '@renderer/components/common/QuickSwitcher'
 import NotificationInbox from '@renderer/components/notifications/NotificationInbox'
 import ForwardModal from '@renderer/components/chat/ForwardModal'
+import FeedbackModal from '@renderer/components/feedback/FeedbackModal'
 import { initScheduler, stopScheduler } from '@renderer/services/scheduler'
 import { encryptDM, encryptChannel, generateChannelKey } from '@renderer/services/crypto'
 import { sendMessage } from '@renderer/services/socket'
@@ -321,6 +322,7 @@ export default function AppLayout() {
       {activeModal === 'userSettings' && <UserSettings />}
       {activeModal === 'addFriend' && <AddFriendModal />}
       {activeModal === 'inbox' && <NotificationInbox />}
+      {activeModal === 'feedback' && <FeedbackModal />}
 
       {/* Forward Message Modal */}
       <ForwardModal />

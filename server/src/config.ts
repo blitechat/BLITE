@@ -22,6 +22,10 @@ export const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
 export const BCRYPT_ROUNDS = 12;
 export const MESSAGE_PAGE_SIZE = 50;
 
+// Telegram bot for feedback notifications
+export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+export const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+
 // VAPID keys for web push notifications
 // Generate with: npx web-push generate-vapid-keys
 export const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';

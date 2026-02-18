@@ -326,4 +326,10 @@ export const auditLogAPI = {
     ).then((r) => r.data),
 }
 
+// Feedback
+export const feedbackAPI = {
+  submit: (data: { type: string; subject: string; description: string }) =>
+    api.post('/feedback', data).then((r) => r.data),
+}
+
 export default api
