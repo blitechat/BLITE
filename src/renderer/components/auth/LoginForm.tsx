@@ -353,7 +353,8 @@ export default function LoginForm() {
         <div className="absolute top-1/4 -left-32 w-96 h-96 rounded-full opacity-20 blur-3xl" style={{ background: 'var(--blite-gradient-start)' }} />
         <div className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full opacity-20 blur-3xl" style={{ background: 'var(--blite-gradient-end)' }} />
         <div className="relative z-10">
-          <RecoveryKeyInput onSubmit={handleRecovery} onGenerateNew={handleGenerateNewKeys} />
+          {/* Recovery key is REQUIRED for existing accounts - no option to generate new keys */}
+          <RecoveryKeyInput onSubmit={handleRecovery} />
         </div>
       </div>
     )

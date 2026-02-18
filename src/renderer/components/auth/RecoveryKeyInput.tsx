@@ -4,7 +4,7 @@ import { validateRecoveryKey, cleanRecoveryKey } from '@renderer/services/e2ee'
 
 interface RecoveryKeyInputProps {
   onSubmit: (recoveryKey: string) => Promise<void>
-  onGenerateNew: () => Promise<void>
+  onGenerateNew?: () => Promise<void>  // Optional - only for migration, not for recovery
 }
 
 export default function RecoveryKeyInput({ onSubmit, onGenerateNew }: RecoveryKeyInputProps) {
@@ -106,39 +106,45 @@ export default function RecoveryKeyInput({ onSubmit, onGenerateNew }: RecoveryKe
             )}
           </button>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-blite-glass-border"></div>
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="px-2 bg-blite-bg-secondary text-blite-text-muted">or</span>
-            </div>
-          </div>
+          {onGenerateNew && (
+            <>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-blite-glass-border"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-2 bg-blite-bg-secondary text-blite-text-muted">or</span>
+                </div>
+              </div>
 
-          <button
-            type="button"
-            onClick={handleGenerateNew}
-            disabled={loading || generatingNew}
-            className="w-full px-4 py-2 rounded-md border border-blite-danger/30 text-sm text-blite-danger hover:bg-blite-danger/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {generatingNew ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <AlertCircle size={14} />
-                Lost Key? Generate New Keys
-              </>
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={handleGenerateNew}
+                disabled={loading || generatingNew}
+                className="w-full px-4 py-2 rounded-md border border-blite-danger/30 text-sm text-blite-danger hover:bg-blite-danger/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {generatingNew ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle size={14} />
+                    Lost Key? Generate New Keys
+                  </>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </form>
 
-      <p className="mt-4 text-xs text-center text-blite-text-muted">
-        Generating new keys will permanently delete access to old messages.
-      </p>
+      {onGenerateNew && (
+        <p className="mt-4 text-xs text-center text-blite-text-muted">
+          Generating new keys will permanently delete access to old messages.
+        </p>
+      )}
     </div>
   )
 }
