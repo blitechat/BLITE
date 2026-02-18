@@ -566,6 +566,12 @@ async function performJoin(channelId: string, serverId: string): Promise<void> {
     isJoining = false
     store.setConnected()
 
+    // Wait briefly for E2EE key exchange before draining pending producers
+    if (pendingProducers.length > 0) {
+      console.log('[Voice] Waiting for E2EE key exchange before draining pending producers...')
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+
     // Drain any producers that arrived during the connecting phase
     await drainPendingProducers()
 
@@ -1352,6 +1358,12 @@ async function performDMJoin(dmId: string, targetUserId: string, withVideo: bool
 
     isJoining = false
     store.setConnected()
+
+    // Wait briefly for E2EE key exchange before draining pending producers (critical for DM calls)
+    if (pendingProducers.length > 0) {
+      console.log('[Voice] Waiting for E2EE key exchange before draining pending producers...')
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
 
     // Drain any producers that arrived during the connecting phase (critical for DM calls)
     await drainPendingProducers()
