@@ -168,6 +168,7 @@ export default function App() {
       } catch (err) {
         console.error('Session restore failed:', err)
         localStorage.removeItem('blite_token')
+        useAuthStore.setState({ token: null, user: null, isAuthenticated: false })
         setLoading(false)
       }
     }

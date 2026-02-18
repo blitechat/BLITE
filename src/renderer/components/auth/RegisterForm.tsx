@@ -122,7 +122,10 @@ export default function RegisterForm() {
       await storeKeyBundle(serialized)
       setKeyBundleLoaded(true)
 
-      // Store token but DON'T set user yet (to prevent navigation)
+      // Put token in zustand store so API interceptor can use it for authenticated
+      // calls below (e.g. uploadRecovery). setUser is deferred until after recovery
+      // key is confirmed to prevent premature navigation.
+      useAuthStore.setState({ token: response.token })
       localStorage.setItem('blite_token', response.token)
 
       // Save auth data to apply AFTER recovery key is confirmed
