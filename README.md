@@ -1,63 +1,49 @@
-# BLITE
+ # BLITE
 
-**Privacy-first encrypted messaging.** Text, voice, and video — all end-to-end encrypted.
+  Privacy-first encrypted messaging. Text, voice, and video — all end-to-end encrypted.
 
-![BLITE Logo](LOGO.png)
+  ## Screenshots
 
----
+![%rfUpbeat](https://github.com/user-attachments/assets/dc9f5fd8-aa59-48c9-9125-e1f8ab019e5c)
+![%rfWarm](https://github.com/user-attachments/assets/b9225b21-212e-42f5-a6ba-ac9f7f534be9)
+![%rfWorthy](https://github.com/user-attachments/assets/4696510b-15ed-4d00-b19a-6fd5576442c0)
 
-## Screenshots
 
-<!-- TODO: add screenshots here -->
-> Screenshots coming soon. Try the [live demo](https://blite.chat) or self-host to see it in action.
+  ## Features
 
----
+  - E2EE Messaging — Double Ratchet for DMs, Sender Keys for channels (same protocols as Signal)
+  - E2EE Voice & Video — AES-GCM encrypted, SFU-based via mediasoup
+  - Communities — Servers with channels, roles, permissions, and invites
+  - Friends & DMs — 1-on-1 messaging, voice calls, and video calls
+  - File Sharing — Send files and images in chats
+  - Desktop App — Windows and Linux (Electron), web app also available
+  - Self-hostable — One script setup, Docker-based, SQLite, no external dependencies
 
-## Features
+  ## Try It
 
-- **E2EE Messaging** — Double Ratchet for DMs, Sender Keys for channels (same protocols as Signal)
-- **E2EE Voice & Video** — AES-GCM encrypted, SFU-based via mediasoup
-- **Communities** — Servers with channels, roles, permissions, and invites
-- **Friends & DMs** — 1-on-1 messaging, voice calls, and video calls
-- **File Sharing** — Send files and images in chats
-- **Desktop App** — Windows and Linux (Electron), web app also available
-- **Self-hostable** — One script setup, Docker-based, SQLite, no external dependencies
+  Hosted: https://blite.chat
+  Desktop downloads: GitHub Releases page
 
----
+  ## Self-Hosting
 
-## Try It
+  3 commands:
 
-**Hosted:** [blite.chat](https://blite.chat)
+  git clone https://github.com/blitechat/BLITE && cd BLITE
+  bash setup.sh
+  # choose "lite" (text only) or "full" (voice + video)
 
-**Desktop downloads:** [Releases](https://github.com/blitechat/BLITE/releases)
+  Full docs in SELF_HOST.md
 
----
+  Requirements: Linux, Docker, Docker Compose, 512MB RAM minimum.
 
-## Self-Hosting
+  ## Security & Privacy
 
-3 commands to get running:
+  - Server cannot read message content — everything is encrypted client-side
+  - Server cannot decrypt voice or video streams
+  - Metadata (timing, membership) is visible to the server operator — self-hosting eliminates that trust requirement
 
-```bash
-git clone https://github.com/blitechat/BLITE && cd BLITE
-bash setup.sh
-# Choose "lite" (text only) or "full" (voice + video)
-```
+  Full details in PRIVACY.md
 
-Full self-hosting documentation: [SELF_HOST.md](SELF_HOST.md)
+  ## License
 
-Requirements: Linux, Docker, Docker Compose, 512 MB RAM minimum.
-
----
-
-## Security & Privacy
-
-- Server **cannot read** message content — everything is encrypted client-side
-- Server **cannot decrypt** voice or video streams
-- Metadata (timing, membership) is visible to the server operator — self-hosting eliminates that trust requirement
-- See [PRIVACY.md](PRIVACY.md) for full details
-
----
-
-## License
-
-[MIT](LICENSE)
+  MIT
