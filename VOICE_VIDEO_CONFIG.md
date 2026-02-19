@@ -1,7 +1,31 @@
 # BLITE Voice/Video Configuration
 
 ## Overview
-Voice and video chat uses Mediasoup SFU with WebRTC for real-time media streaming.
+Voice and video chat uses Mediasoup SFU with WebRTC for real-time media streaming. All voice and video frames are end-to-end encrypted with AES-128-GCM using the WebRTC Insertable Streams API.
+
+## End-to-End Encryption
+
+### How Voice/Video E2EE Works
+1. Each participant generates a fresh **ephemeral Curve25519 DH key pair** per voice session (independent of identity keys)
+2. Ephemeral public keys are exchanged via the signaling server
+3. Each participant generates a random **AES-128-GCM session key** and encrypts it for each peer using `nacl.box` (X25519 DH)
+4. Encoded media frames are encrypted using the **Insertable Streams API** between the encoder and the RTP packetizer — the SFU only sees ciphertext
+
+### Frame Format
+```
+[header (1 byte)][AES-GCM ciphertext + 16-byte tag][IV (12 bytes)][keyId (1 byte)]
+```
+- The first byte is left unencrypted for SFU keyframe detection
+- Random 12-byte IV per frame
+- keyId tracks key rotations (grace period for in-flight frames)
+
+### Key Rotation
+- Keys are rotated when a participant leaves (forward secrecy)
+- A 2-second grace period allows in-flight frames encrypted with the old key to be decrypted
+- Old key material is securely zeroed after rotation
+
+### Browser Support
+Voice E2EE requires the Insertable Streams API (Chromium-based browsers: Chrome, Edge, Brave, Electron). On unsupported browsers, voice/video works without E2EE.
 
 ## Server Configuration
 

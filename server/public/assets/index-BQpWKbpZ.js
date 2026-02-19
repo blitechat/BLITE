@@ -11059,6 +11059,16 @@ const naclUtil$1 = /* @__PURE__ */ _mergeNamespaces({
   __proto__: null,
   default: naclUtil
 }, [naclUtilExports]);
+function secureZero$1(arr) {
+  if (!arr || arr.length === 0) return;
+  crypto.getRandomValues(arr);
+  arr.fill(0);
+}
+function secureZeroAll(...arrays) {
+  for (const arr of arrays) {
+    if (arr) secureZero$1(arr);
+  }
+}
 async function hmacSHA256(key, data) {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
@@ -11300,9 +11310,98 @@ function needsSignedPreKeyRotation(updatedAt) {
   const thirtyDays = 30 * 24 * 60 * 60 * 1e3;
   return age > thirtyDays;
 }
+async function removeUsedOTP(otpKeyId) {
+  const storedBundle = await loadKeyBundle();
+  if (!storedBundle) return false;
+  const originalCount = storedBundle.oneTimePreKeys.length;
+  storedBundle.oneTimePreKeys = storedBundle.oneTimePreKeys.filter(
+    (otp) => otp.id !== otpKeyId
+  );
+  if (storedBundle.oneTimePreKeys.length < originalCount) {
+    await storeKeyBundle(storedBundle);
+    console.log(`[KeyManager] Removed used OTP key ${otpKeyId} from local bundle`);
+    return true;
+  }
+  return false;
+}
 async function deriveSessionStoreKey(identitySecretKey) {
   return hkdf(identitySecretKey, null, "blite-session-store", 32);
 }
+const scriptRel = function detectScriptRel() {
+  const relList = typeof document !== "undefined" && document.createElement("link").relList;
+  return relList && relList.supports && relList.supports("modulepreload") ? "modulepreload" : "preload";
+}();
+const assetsURL = function(dep, importerUrl) {
+  return new URL(dep, importerUrl).href;
+};
+const seen = {};
+const __vitePreload = function preload(baseModule, deps, importerUrl) {
+  let promise = Promise.resolve();
+  if (deps && deps.length > 0) {
+    const links = document.getElementsByTagName("link");
+    const cspNonceMeta = document.querySelector(
+      "meta[property=csp-nonce]"
+    );
+    const cspNonce = cspNonceMeta?.nonce || cspNonceMeta?.getAttribute("nonce");
+    promise = Promise.allSettled(
+      deps.map((dep) => {
+        dep = assetsURL(dep, importerUrl);
+        if (dep in seen) return;
+        seen[dep] = true;
+        const isCss = dep.endsWith(".css");
+        const cssSelector = isCss ? '[rel="stylesheet"]' : "";
+        const isBaseRelative = !!importerUrl;
+        if (isBaseRelative) {
+          for (let i = links.length - 1; i >= 0; i--) {
+            const link2 = links[i];
+            if (link2.href === dep && (!isCss || link2.rel === "stylesheet")) {
+              return;
+            }
+          }
+        } else if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) {
+          return;
+        }
+        const link = document.createElement("link");
+        link.rel = isCss ? "stylesheet" : scriptRel;
+        if (!isCss) {
+          link.as = "script";
+        }
+        link.crossOrigin = "";
+        link.href = dep;
+        if (cspNonce) {
+          link.setAttribute("nonce", cspNonce);
+        }
+        document.head.appendChild(link);
+        if (isCss) {
+          return new Promise((res, rej) => {
+            link.addEventListener("load", res);
+            link.addEventListener(
+              "error",
+              () => rej(new Error(`Unable to preload CSS for ${dep}`))
+            );
+          });
+        }
+      })
+    );
+  }
+  function handlePreloadError(err) {
+    const e = new Event("vite:preloadError", {
+      cancelable: true
+    });
+    e.payload = err;
+    window.dispatchEvent(e);
+    if (!e.defaultPrevented) {
+      throw err;
+    }
+  }
+  return promise.then((res) => {
+    for (const item of res || []) {
+      if (item.status !== "rejected") continue;
+      handlePreloadError(item.reason);
+    }
+    return baseModule().catch(handlePreloadError);
+  });
+};
 const useMessageStore = create((set2) => ({
   messages: {},
   hasMore: {},
@@ -14185,6 +14284,9 @@ const auditLogAPI = {
     { params }
   ).then((r2) => r2.data)
 };
+const feedbackAPI = {
+  submit: (data) => api.post("/feedback", data).then((r2) => r2.data)
+};
 const api$1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   auditLogAPI,
@@ -14194,6 +14296,7 @@ const api$1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePropert
   channelKeyAPI,
   default: api,
   dmAPI,
+  feedbackAPI,
   friendAPI,
   inviteAPI,
   keyAPI,
@@ -14349,23 +14452,27 @@ async function performX3DH(params) {
   const theirIdentity = decodeBase64$6(recipientBundle.identityKey);
   const theirSignedPreKey = decodeBase64$6(recipientBundle.signedPreKey);
   const ephemeral = nacl.box.keyPair();
+  const ephemeralPublicKey = encodeBase64$8(ephemeral.publicKey);
   const dh1 = nacl.box.before(theirSignedPreKey, myIdentitySecret);
   const dh2 = nacl.box.before(theirIdentity, ephemeral.secretKey);
   const dh3 = nacl.box.before(theirSignedPreKey, ephemeral.secretKey);
   let dhConcat;
   let usedOtpKeyId;
+  let dh4;
   if (recipientBundle.oneTimePreKey) {
     const theirOTP = decodeBase64$6(recipientBundle.oneTimePreKey);
-    const dh4 = nacl.box.before(theirOTP, ephemeral.secretKey);
+    dh4 = nacl.box.before(theirOTP, ephemeral.secretKey);
     dhConcat = concatBytes(dh1, dh2, dh3, dh4);
     usedOtpKeyId = recipientBundle.oneTimePreKeyId;
   } else {
     dhConcat = concatBytes(dh1, dh2, dh3);
   }
+  secureZero(ephemeral.secretKey);
   const sharedSecret = await hkdf(dhConcat, null, "blite-x3dh-v1", 32);
+  secureZeroAll(dh1, dh2, dh3, dh4, dhConcat);
   return {
     sharedSecret,
-    ephemeralPublicKey: encodeBase64$8(ephemeral.publicKey),
+    ephemeralPublicKey,
     usedOtpKeyId
   };
 }
@@ -14383,36 +14490,52 @@ async function respondX3DH(params) {
   const dh2 = nacl.box.before(theirEphemeral, myIdentitySecret);
   const dh3 = nacl.box.before(theirEphemeral, mySignedPreKeySecret);
   let dhConcat;
+  let dh4;
   if (myOneTimePreKeySecret) {
-    const dh4 = nacl.box.before(theirEphemeral, myOneTimePreKeySecret);
+    dh4 = nacl.box.before(theirEphemeral, myOneTimePreKeySecret);
     dhConcat = concatBytes(dh1, dh2, dh3, dh4);
   } else {
     dhConcat = concatBytes(dh1, dh2, dh3);
   }
   const sharedSecret = await hkdf(dhConcat, null, "blite-x3dh-v1", 32);
+  secureZeroAll(dh1, dh2, dh3, dh4, dhConcat);
   return { sharedSecret };
 }
 const { encodeBase64: encodeBase64$7, decodeBase64: decodeBase64$5, encodeUTF8: encodeUTF8$2, decodeUTF8: decodeUTF8$2 } = naclUtil;
 const CHAIN_KEY_CONSTANT$1 = new Uint8Array([1]);
 const MESSAGE_KEY_CONSTANT$1 = new Uint8Array([2]);
 const MAX_SKIP = 100;
+function createCanonicalSessionId(userId1, userId2) {
+  const sorted = [userId1, userId2].sort();
+  return `${sorted[0]}:${sorted[1]}`;
+}
+function isCanonicalInitiator(myUserId, otherUserId) {
+  return myUserId < otherUserId;
+}
 async function initSession(sessionId, peerId, sharedSecret, isInitiator) {
   const sendSeed = new Uint8Array([...sharedSecret, isInitiator ? 1 : 2]);
   const recvSeed = new Uint8Array([...sharedSecret, isInitiator ? 2 : 1]);
   const sendChainKey = await hmacSHA256(sharedSecret, sendSeed);
   const recvChainKey = await hmacSHA256(sharedSecret, recvSeed);
+  const dhRatchetKeyPair = nacl.box.keyPair();
+  secureZero$1(sendSeed);
+  secureZero$1(recvSeed);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   return {
     sessionId,
     peerId,
-    rootKey: encodeBase64$7(sharedSecret),
     sendChainKey: encodeBase64$7(sendChainKey),
     recvChainKey: encodeBase64$7(recvChainKey),
     sendCounter: 0,
     recvCounter: 0,
     skippedKeys: {},
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    // DH ratchet state
+    dhRatchetPublicKey: encodeBase64$7(dhRatchetKeyPair.publicKey),
+    dhRatchetSecretKey: encodeBase64$7(dhRatchetKeyPair.secretKey),
+    dhRatchetGeneration: 0,
+    skippedDHKeys: {}
   };
 }
 async function advanceSendChain(session) {
@@ -14421,6 +14544,8 @@ async function advanceSendChain(session) {
   const newChainKey = await hmacSHA256(chainKey, CHAIN_KEY_CONSTANT$1);
   return {
     messageKey,
+    dhRatchetPublicKey: session.dhRatchetPublicKey,
+    // Include for DH ratchet
     session: {
       ...session,
       sendChainKey: encodeBase64$7(newChainKey),
@@ -14499,6 +14624,116 @@ function decryptWithMessageKey(encrypted, nonce, messageKey) {
   const decrypted = nacl.secretbox.open(encryptedBytes, nonceBytes, key);
   if (!decrypted) throw new Error("Ratchet decryption failed");
   return encodeUTF8$2(decrypted);
+}
+async function performDHRatchetReceive(session, peerDHPublicKey) {
+  if (!session.dhRatchetSecretKey) {
+    return {
+      ...session,
+      peerDHRatchetKey: peerDHPublicKey,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  if (session.peerDHRatchetKey === peerDHPublicKey) {
+    return session;
+  }
+  const mySecretKey = decodeBase64$5(session.dhRatchetSecretKey);
+  const theirPublicKey = decodeBase64$5(peerDHPublicKey);
+  const dhOutput = nacl.box.before(theirPublicKey, mySecretKey);
+  const newRecvChainKey = await hkdf(
+    dhOutput,
+    null,
+    "blite-dh-ratchet-recv",
+    32
+  );
+  secureZero$1(dhOutput);
+  const newGeneration = (session.dhRatchetGeneration || 0) + 1;
+  return {
+    ...session,
+    recvChainKey: encodeBase64$7(newRecvChainKey),
+    recvCounter: 0,
+    // Reset counter for new chain
+    peerDHRatchetKey: peerDHPublicKey,
+    dhRatchetGeneration: newGeneration,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function performDHRatchetSend(session) {
+  if (!session.peerDHRatchetKey) {
+    return session;
+  }
+  const newKeyPair = nacl.box.keyPair();
+  const theirPublicKey = decodeBase64$5(session.peerDHRatchetKey);
+  const dhOutput = nacl.box.before(theirPublicKey, newKeyPair.secretKey);
+  const newSendChainKey = await hkdf(
+    dhOutput,
+    null,
+    "blite-dh-ratchet-send",
+    32
+  );
+  secureZero$1(dhOutput);
+  if (session.dhRatchetSecretKey) {
+    const oldSecret = decodeBase64$5(session.dhRatchetSecretKey);
+    secureZero$1(oldSecret);
+  }
+  return {
+    ...session,
+    sendChainKey: encodeBase64$7(newSendChainKey),
+    sendCounter: 0,
+    // Reset counter for new chain
+    dhRatchetPublicKey: encodeBase64$7(newKeyPair.publicKey),
+    dhRatchetSecretKey: encodeBase64$7(newKeyPair.secretKey),
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function advanceRecvChainWithDH(session, messageCounter, peerDHPublicKey) {
+  let currentSession = session;
+  if (peerDHPublicKey && peerDHPublicKey !== session.peerDHRatchetKey) {
+    if (session.dhRatchetGeneration !== void 0) {
+      const skippedDHKeys = { ...session.skippedDHKeys };
+      const keysToCache = Math.min(MAX_SKIP, MAX_SKIP - Object.keys(skippedDHKeys).length);
+      if (keysToCache > 0 && session.recvCounter > 0) {
+        let chainKey = decodeBase64$5(session.recvChainKey);
+        for (let i = 0; i < keysToCache && session.recvCounter + i < MAX_SKIP; i++) {
+          const mk2 = await hmacSHA256(chainKey, MESSAGE_KEY_CONSTANT$1);
+          const idx = `${session.dhRatchetGeneration}:${session.recvCounter + i}`;
+          skippedDHKeys[idx] = encodeBase64$7(mk2);
+          chainKey = await hmacSHA256(chainKey, CHAIN_KEY_CONSTANT$1);
+        }
+      }
+      currentSession = { ...currentSession, skippedDHKeys };
+    }
+    currentSession = await performDHRatchetReceive(currentSession, peerDHPublicKey);
+  }
+  if (currentSession.skippedDHKeys && currentSession.dhRatchetGeneration !== void 0) {
+    for (let gen = 0; gen < currentSession.dhRatchetGeneration; gen++) {
+      const idx = `${gen}:${messageCounter}`;
+      const skippedKey = currentSession.skippedDHKeys[idx];
+      if (skippedKey) {
+        const newSkippedDHKeys = { ...currentSession.skippedDHKeys };
+        delete newSkippedDHKeys[idx];
+        return {
+          messageKey: decodeBase64$5(skippedKey),
+          session: {
+            ...currentSession,
+            skippedDHKeys: newSkippedDHKeys,
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        };
+      }
+    }
+  }
+  return advanceRecvChain(currentSession, messageCounter);
+}
+async function advanceSendChainWithDH(session, forceRatchet = false) {
+  let currentSession = session;
+  const shouldRatchet = session.peerDHRatchetKey && (forceRatchet || session.sendCounter === 0 || session.sendCounter > 0 && session.sendCounter % 50 === 0);
+  if (shouldRatchet) {
+    currentSession = await performDHRatchetSend(currentSession);
+  }
+  return advanceSendChain(currentSession);
+}
+function sessionSupportsDHRatchet(session) {
+  return !!session.dhRatchetPublicKey && !!session.dhRatchetSecretKey;
 }
 const { encodeBase64: encodeBase64$6, decodeBase64: decodeBase64$4 } = naclUtil;
 const DB_NAME$1 = "blite_e2ee";
@@ -14676,6 +14911,7 @@ function createSenderKeyState(channelId, senderId, senderKey) {
     channelId,
     senderId,
     chainKey: encodeBase64$5(senderKey),
+    originalKey: encodeBase64$5(senderKey),
     counter: 0,
     createdAt: now,
     updatedAt: now
@@ -14769,81 +15005,6 @@ function distributeSenderKey(senderKey, members, senderSecretKey) {
     };
   });
 }
-const scriptRel = function detectScriptRel() {
-  const relList = typeof document !== "undefined" && document.createElement("link").relList;
-  return relList && relList.supports && relList.supports("modulepreload") ? "modulepreload" : "preload";
-}();
-const assetsURL = function(dep, importerUrl) {
-  return new URL(dep, importerUrl).href;
-};
-const seen = {};
-const __vitePreload = function preload(baseModule, deps, importerUrl) {
-  let promise = Promise.resolve();
-  if (deps && deps.length > 0) {
-    const links = document.getElementsByTagName("link");
-    const cspNonceMeta = document.querySelector(
-      "meta[property=csp-nonce]"
-    );
-    const cspNonce = cspNonceMeta?.nonce || cspNonceMeta?.getAttribute("nonce");
-    promise = Promise.allSettled(
-      deps.map((dep) => {
-        dep = assetsURL(dep, importerUrl);
-        if (dep in seen) return;
-        seen[dep] = true;
-        const isCss = dep.endsWith(".css");
-        const cssSelector = isCss ? '[rel="stylesheet"]' : "";
-        const isBaseRelative = !!importerUrl;
-        if (isBaseRelative) {
-          for (let i = links.length - 1; i >= 0; i--) {
-            const link2 = links[i];
-            if (link2.href === dep && (!isCss || link2.rel === "stylesheet")) {
-              return;
-            }
-          }
-        } else if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) {
-          return;
-        }
-        const link = document.createElement("link");
-        link.rel = isCss ? "stylesheet" : scriptRel;
-        if (!isCss) {
-          link.as = "script";
-        }
-        link.crossOrigin = "";
-        link.href = dep;
-        if (cspNonce) {
-          link.setAttribute("nonce", cspNonce);
-        }
-        document.head.appendChild(link);
-        if (isCss) {
-          return new Promise((res, rej) => {
-            link.addEventListener("load", res);
-            link.addEventListener(
-              "error",
-              () => rej(new Error(`Unable to preload CSS for ${dep}`))
-            );
-          });
-        }
-      })
-    );
-  }
-  function handlePreloadError(err) {
-    const e = new Event("vite:preloadError", {
-      cancelable: true
-    });
-    e.payload = err;
-    window.dispatchEvent(e);
-    if (!e.defaultPrevented) {
-      throw err;
-    }
-  }
-  return promise.then((res) => {
-    for (const item of res || []) {
-      if (item.status !== "rejected") continue;
-      handlePreloadError(item.reason);
-    }
-    return baseModule().catch(handlePreloadError);
-  });
-};
 const PACKET_TYPES = /* @__PURE__ */ Object.create(null);
 PACKET_TYPES["open"] = "0";
 PACKET_TYPES["close"] = "1";
@@ -31281,6 +31442,42 @@ let reconnectTimeout = null;
 let statsMonitorInterval = null;
 let lastPacketLoss = 0;
 let joinPromise = null;
+const pendingProducers = [];
+function queuePendingProducer(producerId, userId) {
+  pendingProducers.push({ producerId, userId });
+  console.log(`[Voice] Queued pending producer ${producerId} from ${userId} (still connecting)`);
+}
+async function waitForPendingProducerKeys() {
+  if (pendingProducers.length === 0) return;
+  const { waitForPeerKey: waitForPeerKey2, hasPeerKey: hasPeerKey2 } = await __vitePreload(async () => {
+    const { waitForPeerKey: waitForPeerKey22, hasPeerKey: hasPeerKey3 } = await Promise.resolve().then(() => voiceE2EE);
+    return { waitForPeerKey: waitForPeerKey22, hasPeerKey: hasPeerKey3 };
+  }, true ? void 0 : void 0, import.meta.url);
+  const uniqueUserIds = [...new Set(pendingProducers.map((p2) => p2.userId))];
+  console.log(`[Voice] Waiting for E2EE keys from ${uniqueUserIds.length} pending producer owner(s)...`);
+  const keyWaitPromises = uniqueUserIds.map(async (userId) => {
+    if (hasPeerKey2(userId)) {
+      console.log(`[Voice] Already have key for ${userId}`);
+      return true;
+    }
+    console.log(`[Voice] Waiting for key from ${userId}...`);
+    const hasKey = await waitForPeerKey2(userId, 8e3);
+    if (!hasKey) {
+      console.warn(`[Voice] ⚠ Still no key from ${userId} after 8s - may have audio issues`);
+    }
+    return hasKey;
+  });
+  await Promise.all(keyWaitPromises);
+  console.log("[Voice] E2EE key exchange complete for all pending producers");
+}
+async function drainPendingProducers() {
+  if (pendingProducers.length === 0) return;
+  console.log(`[Voice] Draining ${pendingProducers.length} pending producer(s)`);
+  while (pendingProducers.length > 0) {
+    const { producerId, userId } = pendingProducers.shift();
+    await consumeProducer(producerId, userId);
+  }
+}
 let isJoining = false;
 let audioContext = null;
 let analyserNode = null;
@@ -31614,6 +31811,8 @@ async function performJoin(channelId, serverId) {
     }
     isJoining = false;
     store.setConnected();
+    await waitForPendingProducerKeys();
+    await drainPendingProducers();
     playCallConnectedSound();
   } catch (err) {
     console.error("Failed to join voice channel:", err);
@@ -32178,6 +32377,8 @@ async function performDMJoin(dmId, targetUserId, withVideo) {
     }
     isJoining = false;
     store.setConnected();
+    await waitForPendingProducerKeys();
+    await drainPendingProducers();
     playCallConnectedSound();
     console.log("[Voice] ✓ DM call connected successfully");
   } catch (err) {
@@ -32196,6 +32397,7 @@ const voiceService = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.define
   handleProducerClosed,
   joinVoiceChannel,
   leaveVoiceChannel,
+  queuePendingProducer,
   startCamera,
   startDMCall,
   startScreenShare,
@@ -32692,6 +32894,12 @@ function registerSocketListeners(socket2) {
     const voiceStore = useVoiceStore.getState();
     if (voiceStore.isConnected) {
       consumeProducer(producerId, userId);
+    } else if (voiceStore.isConnecting) {
+      const { queuePendingProducer: queuePendingProducer2 } = await __vitePreload(async () => {
+        const { queuePendingProducer: queuePendingProducer3 } = await Promise.resolve().then(() => voiceService);
+        return { queuePendingProducer: queuePendingProducer3 };
+      }, true ? void 0 : void 0, import.meta.url);
+      queuePendingProducer2(producerId, userId);
     }
   });
   socket2.on("voice:producerClosed", ({ producerId, userId }) => {
@@ -32799,7 +33007,31 @@ function registerSocketListeners(socket2) {
         if (!state) continue;
         try {
           const naclUtil2 = await __vitePreload(() => Promise.resolve().then(() => naclUtil$1), true ? void 0 : void 0, import.meta.url);
-          const senderKey = naclUtil2.decodeBase64(state.chainKey);
+          const keyToDistribute = state.originalKey || state.chainKey;
+          const senderKey = naclUtil2.decodeBase64(keyToDistribute);
+          if (!state.originalKey) {
+            const { generateSenderKey: generateSenderKey2, createSenderKeyState: createNewState, distributeSenderKey: distributeSenderKey2 } = await __vitePreload(async () => {
+              const { generateSenderKey: generateSenderKey3, createSenderKeyState: createNewState2, distributeSenderKey: distributeSenderKey3 } = await Promise.resolve().then(() => index);
+              return { generateSenderKey: generateSenderKey3, createSenderKeyState: createNewState2, distributeSenderKey: distributeSenderKey3 };
+            }, true ? void 0 : void 0, import.meta.url);
+            const newKey = generateSenderKey2();
+            const newState = createNewState(channel.id, currentUser.id, newKey);
+            const memberList = await (await __vitePreload(async () => {
+              const { serverAPI: serverAPI2 } = await Promise.resolve().then(() => api$1);
+              return { serverAPI: serverAPI2 };
+            }, true ? void 0 : void 0, import.meta.url)).serverAPI.getMembers(serverId);
+            const memberData = memberList.filter((m2) => m2.user?.publicKey && m2.userId !== currentUser.id).map((m2) => ({ id: m2.userId, publicKey: m2.user.publicKey }));
+            const keys = distributeSenderKey2(newKey, memberData, privateKey);
+            if (keys.length > 0) {
+              await channelKeyAPI2.setKeys(channel.id, keys, currentUser.id);
+            }
+            const { saveSenderKeyState: saveSenderKeyState2 } = await __vitePreload(async () => {
+              const { saveSenderKeyState: saveSenderKeyState3 } = await Promise.resolve().then(() => index);
+              return { saveSenderKeyState: saveSenderKeyState3 };
+            }, true ? void 0 : void 0, import.meta.url);
+            await saveSenderKeyState2(newState);
+            continue;
+          }
           const { encrypted, nonce } = encryptSenderKeyForUser2(senderKey, memberPubKey, privateKey);
           await channelKeyAPI2.setKeys(channel.id, [{
             userId: newMemberId,
@@ -32810,6 +33042,74 @@ function registerSocketListeners(socket2) {
       }
     } catch (err) {
       console.error("[Socket] Failed to distribute keys to new member:", err);
+    }
+  });
+  socket2.on("dm:session-reset", async ({ fromUserId }) => {
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser || fromUserId === currentUser.id) return;
+    try {
+      const { deleteSession: deleteSession2 } = await __vitePreload(async () => {
+        const { deleteSession: deleteSession3 } = await Promise.resolve().then(() => index);
+        return { deleteSession: deleteSession3 };
+      }, true ? void 0 : void 0, import.meta.url);
+      await deleteSession2(fromUserId);
+      console.log(`[Socket] Deleted stale DM session for peer ${fromUserId} (requested by receiver)`);
+    } catch (err) {
+      console.error("[Socket] Failed to delete DM session on reset request:", err);
+    }
+  });
+  socket2.on("channel:rekey-response", async ({ channelId, senderId, encryptedKey }) => {
+    const currentUser = useAuthStore.getState().user;
+    const pk2 = useAuthStore.getState().privateKey;
+    if (!currentUser || !pk2 || senderId === currentUser.id) return;
+    try {
+      const { decryptSenderKeyFromUser: decryptSenderKeyFromUser2, createSenderKeyState: createSenderKeyState2, saveSenderKeyState: saveSenderKeyState2 } = await __vitePreload(async () => {
+        const { decryptSenderKeyFromUser: decryptSenderKeyFromUser3, createSenderKeyState: createSenderKeyState3, saveSenderKeyState: saveSenderKeyState3 } = await Promise.resolve().then(() => index);
+        return { decryptSenderKeyFromUser: decryptSenderKeyFromUser3, createSenderKeyState: createSenderKeyState3, saveSenderKeyState: saveSenderKeyState3 };
+      }, true ? void 0 : void 0, import.meta.url);
+      const { userAPI: userAPI2 } = await __vitePreload(async () => {
+        const { userAPI: userAPI3 } = await Promise.resolve().then(() => api$1);
+        return { userAPI: userAPI3 };
+      }, true ? void 0 : void 0, import.meta.url);
+      const parts2 = encryptedKey.split(":");
+      if (parts2.length !== 2) return;
+      const profile = await userAPI2.getProfile(senderId);
+      const senderKey = decryptSenderKeyFromUser2(parts2[0], parts2[1], profile.publicKey, pk2);
+      const newState = createSenderKeyState2(channelId, senderId, senderKey);
+      await saveSenderKeyState2(newState);
+      console.log(`[Socket] Received re-keyed sender key from ${senderId} for channel ${channelId}`);
+    } catch (err) {
+      console.error("[Socket] Failed to handle rekey response:", err);
+    }
+  });
+  socket2.on("channel:rekey-request", async ({ channelId, requesterId }) => {
+    const currentUser = useAuthStore.getState().user;
+    const pk2 = useAuthStore.getState().privateKey;
+    if (!currentUser || !pk2 || requesterId === currentUser.id) return;
+    try {
+      const { getSenderKeyState: getSenderKeyState2, encryptSenderKeyForUser: encryptSenderKeyForUser2 } = await __vitePreload(async () => {
+        const { getSenderKeyState: getSenderKeyState3, encryptSenderKeyForUser: encryptSenderKeyForUser3 } = await Promise.resolve().then(() => index);
+        return { getSenderKeyState: getSenderKeyState3, encryptSenderKeyForUser: encryptSenderKeyForUser3 };
+      }, true ? void 0 : void 0, import.meta.url);
+      const { userAPI: userAPI2, channelKeyAPI: channelKeyAPI2 } = await __vitePreload(async () => {
+        const { userAPI: userAPI3, channelKeyAPI: channelKeyAPI3 } = await Promise.resolve().then(() => api$1);
+        return { userAPI: userAPI3, channelKeyAPI: channelKeyAPI3 };
+      }, true ? void 0 : void 0, import.meta.url);
+      const state = await getSenderKeyState2(channelId, currentUser.id);
+      if (!state) return;
+      const naclUtil2 = await __vitePreload(() => Promise.resolve().then(() => naclUtil$1), true ? void 0 : void 0, import.meta.url);
+      const keyToSend = state.originalKey || state.chainKey;
+      const senderKey = naclUtil2.decodeBase64(keyToSend);
+      const profile = await userAPI2.getProfile(requesterId);
+      if (!profile.publicKey) return;
+      const { encrypted, nonce } = encryptSenderKeyForUser2(senderKey, profile.publicKey, pk2);
+      await channelKeyAPI2.setKeys(channelId, [{
+        userId: requesterId,
+        encryptedKey: `${encrypted}:${nonce}`
+      }]);
+      console.log(`[Socket] Re-distributed sender key to ${requesterId} for channel ${channelId}`);
+    } catch (err) {
+      console.error("[Socket] Failed to handle rekey request:", err);
     }
   });
   socket2.on("call:incoming", ({ callerId, callerName, callerAvatar, dmId, withVideo }) => {
@@ -32926,12 +33226,28 @@ function addReaction(messageId, channelId, emoji) {
 function removeReaction(messageId, channelId, emoji) {
   socket?.emit("reaction:remove", { messageId, channelId, emoji });
 }
+const socket$1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  addReaction,
+  connectSocket,
+  deleteMessage,
+  disconnectSocket,
+  editMessage,
+  getSocket,
+  joinChannel,
+  leaveChannel,
+  removeReaction,
+  sendMessage,
+  startTyping,
+  stopTyping,
+  updatePresence
+}, Symbol.toStringTag, { value: "Module" }));
 const { encodeBase64: encodeBase64$4, decodeBase64: decodeBase64$2 } = naclUtil;
 const AES_KEY_LENGTH = 128;
 const IV_LENGTH = 12;
 const KEY_ROTATION_GRACE_MS = 2e3;
 let localKey = null;
-let nextKeyId = 0;
+let nextKeyId = Math.floor(Math.random() * 256);
 const peerKeys = /* @__PURE__ */ new Map();
 const previousPeerKeys = /* @__PURE__ */ new Map();
 let sessionKeyPair = null;
@@ -32994,12 +33310,17 @@ async function generateVoiceKey() {
   const rawKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LENGTH / 8));
   const key = await crypto.subtle.importKey(
     "raw",
-    rawKey.buffer,
+    rawKey.buffer.slice(rawKey.byteOffset, rawKey.byteOffset + rawKey.byteLength),
     { name: "AES-GCM", length: AES_KEY_LENGTH },
     false,
     ["encrypt", "decrypt"]
   );
   const keyId = nextKeyId++ & 255;
+  for (const graceKey of previousPeerKeys.keys()) {
+    if (graceKey.endsWith(`:${keyId}`)) {
+      previousPeerKeys.delete(graceKey);
+    }
+  }
   return { key, rawKey, keyId };
 }
 async function distributeKeyToAllPeers(channelId) {
@@ -33067,7 +33388,7 @@ async function handlePeerVoiceKey(fromUserId, encrypted, nonce, senderPublicKey,
   console.log(`[VoiceE2EE] Successfully decrypted voice key from ${fromUserId}, rawKey length: ${rawKey.length}`);
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    rawKey,
+    rawKey.buffer.slice(rawKey.byteOffset, rawKey.byteOffset + rawKey.byteLength),
     { name: "AES-GCM", length: AES_KEY_LENGTH },
     false,
     ["decrypt"]
@@ -33405,22 +33726,31 @@ async function initVoiceE2EE(channelId) {
   }
 }
 function cleanupVoiceE2EE() {
+  if (localKey) {
+    secureZero$1(localKey.rawKey);
+  }
   localKey = null;
+  if (sessionKeyPair) {
+    secureZero$1(sessionKeyPair.secretKey);
+  }
   sessionKeyPair = null;
   peerKeys.clear();
   previousPeerKeys.clear();
   peerSessionPublicKeys.clear();
   pendingIncomingKeys.splice(0);
+  nextKeyId = Math.floor(Math.random() * 256);
   useVoiceStore.getState().setVoiceE2EE(false);
-  console.log("[VoiceE2EE] Cleaned up");
+  console.log("[VoiceE2EE] Cleaned up (keys zeroed)");
 }
 async function rotateVoiceKey(channelId) {
   if (!localKey) return;
   console.log("[VoiceE2EE] Rotating voice key...");
+  const oldRawKey = localKey.rawKey;
   const { key, rawKey, keyId } = await generateVoiceKey();
   localKey = { key, rawKey, keyId };
+  secureZero$1(oldRawKey);
   await distributeKeyToAllPeers(channelId);
-  console.log(`[VoiceE2EE] Key rotated (new keyId: ${keyId})`);
+  console.log(`[VoiceE2EE] Key rotated (new keyId: ${keyId}, old key zeroed)`);
 }
 const voiceE2EE = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
@@ -33461,24 +33791,55 @@ function validateRecoveryKey(key) {
 function cleanRecoveryKey(key) {
   return key.replace(/\s+/g, "").toLowerCase();
 }
-function deriveKeyFromRecovery(recoveryKey) {
+const PBKDF2_ITERATIONS = 1e5;
+async function deriveKeyWithPBKDF2(recoveryKey, salt) {
+  const keyBytes = decodeUTF8(recoveryKey);
+  const baseKey = await crypto.subtle.importKey(
+    "raw",
+    keyBytes.buffer,
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: salt.buffer,
+      iterations: PBKDF2_ITERATIONS,
+      hash: "SHA-256"
+    },
+    baseKey,
+    256
+  );
+  return new Uint8Array(derivedBits);
+}
+function deriveKeyFromRecoveryLegacy(recoveryKey) {
   const keyBytes = decodeUTF8(recoveryKey);
   const hash = nacl.hash(keyBytes);
   return hash.slice(0, nacl.secretbox.keyLength);
 }
-function encryptKeysForRecovery(recoveryKey, keys) {
-  const encryptionKey = deriveKeyFromRecovery(recoveryKey);
+async function encryptKeysForRecovery(recoveryKey, keys) {
+  const salt = nacl.randomBytes(32);
+  const encryptionKey = await deriveKeyWithPBKDF2(recoveryKey, salt);
   const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
   const plaintext = decodeUTF8(JSON.stringify(keys));
   const encrypted = nacl.secretbox(plaintext, nonce, encryptionKey);
   if (!encrypted) throw new Error("Recovery encryption failed");
   return {
     encrypted: encodeBase64$3(encrypted),
-    nonce: encodeBase64$3(nonce)
+    nonce: encodeBase64$3(nonce),
+    salt: encodeBase64$3(salt),
+    iterations: PBKDF2_ITERATIONS
   };
 }
-function decryptKeysFromRecovery(recoveryKey, blob) {
-  const encryptionKey = deriveKeyFromRecovery(recoveryKey);
+async function decryptKeysFromRecovery(recoveryKey, blob) {
+  let encryptionKey;
+  if (blob.salt) {
+    const saltBytes = decodeBase64$1(blob.salt);
+    encryptionKey = await deriveKeyWithPBKDF2(recoveryKey, saltBytes);
+  } else {
+    encryptionKey = deriveKeyFromRecoveryLegacy(recoveryKey);
+  }
   const encryptedBytes = decodeBase64$1(blob.encrypted);
   const nonceBytes = decodeBase64$1(blob.nonce);
   const decrypted = nacl.secretbox.open(encryptedBytes, nonceBytes, encryptionKey);
@@ -33488,7 +33849,9 @@ function decryptKeysFromRecovery(recoveryKey, blob) {
 const index = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   advanceRecvChain,
+  advanceRecvChainWithDH,
   advanceSendChain,
+  advanceSendChainWithDH,
   advanceSenderChain,
   advanceSenderRecvChain,
   attachDecryptTransform,
@@ -33500,6 +33863,7 @@ const index = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePropert
   clearAllSenderKeys,
   clearKeyBundle,
   concatBytes,
+  createCanonicalSessionId,
   createSenderKeyState,
   decryptKeysFromRecovery,
   decryptSenderKeyFromUser,
@@ -33533,19 +33897,26 @@ const index = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePropert
   initSession,
   initSessionDB,
   initVoiceE2EE,
+  isCanonicalInitiator,
   isInsertableStreamsSupported,
   isSessionDBReady,
   loadKeyBundle,
   needsOTPReplenishment,
   needsSignedPreKeyRotation,
+  performDHRatchetReceive,
+  performDHRatchetSend,
   performX3DH,
+  removeUsedOTP,
   requestPeerKey,
   respondX3DH,
   rotateSignedPreKey,
   rotateVoiceKey,
   saveSenderKeyState,
   saveSession,
+  secureZero: secureZero$1,
+  secureZeroAll,
   serializeKeyBundle,
+  sessionSupportsDHRatchet,
   storeKeyBundle,
   validateRecoveryKey,
   verifySignedPreKey,
@@ -33651,6 +34022,7 @@ async function cleanupOldMessages() {
   }
 }
 const channelKeyCache$1 = {};
+const dmResetSentAt = /* @__PURE__ */ new Map();
 async function ensureSessionDB() {
   if (isSessionDBReady()) return true;
   try {
@@ -33752,8 +34124,9 @@ function useMessages(channelId, isDM = false) {
       throw new Error("Session DB not available - please log out and log back in");
     }
     let session = await getSession(senderId);
-    if (parsed.ek && !session) {
-      console.log("[Decrypt] Receiving X3DH initial message from", senderId);
+    const attemptX3DH = async () => {
+      if (!parsed.ek) return null;
+      console.log("[Decrypt] Attempting X3DH session from message handshake for", senderId);
       const storedBundle = await loadKeyBundle();
       if (!storedBundle) {
         console.error("[Decrypt] No key bundle found for X3DH response");
@@ -33774,36 +34147,67 @@ function useMessages(channelId, isDM = false) {
       try {
         const senderBundle = await keyAPI.getBundle(senderId);
         senderIdentityKey = senderBundle.identityKey;
-        console.log("[Decrypt] Got sender identity key from bundle");
       } catch (err) {
         console.warn("[Decrypt] Could not fetch sender bundle, falling back to profile:", err);
         const profile = await userAPI.getProfile(senderId);
         senderIdentityKey = profile.publicKey;
-        console.log("[Decrypt] Got sender identity key from profile");
       }
+      const x3dhResult = await respondX3DH({
+        myIdentitySecret: bundle.identityKeyPair.secretKey,
+        mySignedPreKeySecret: bundle.signedPreKey.keyPair.secretKey,
+        myOneTimePreKeySecret: otpSecret,
+        senderIdentityKey,
+        senderEphemeralKey: parsed.ek
+      });
+      const canonicalSessionId = createCanonicalSessionId(userRef.current.id, senderId);
+      const amInitiator = isCanonicalInitiator(userRef.current.id, senderId);
+      if (parsed.sid !== canonicalSessionId) {
+        console.warn(`[Decrypt] Sender used non-canonical session ID: ${parsed.sid}, expected: ${canonicalSessionId}`);
+      }
+      const newSession = await initSession(
+        canonicalSessionId,
+        senderId,
+        x3dhResult.sharedSecret,
+        amInitiator
+      );
+      if (parsed.otk != null) {
+        await removeUsedOTP(parsed.otk);
+      }
+      console.log("[Decrypt] X3DH session initialized successfully with sessionId:", canonicalSessionId, "amInitiator:", amInitiator);
+      return newSession;
+    };
+    const requestSenderReset = async () => {
+      const now = Date.now();
+      const lastReset = dmResetSentAt.get(senderId) || 0;
+      if (now - lastReset < 3e4) return;
+      dmResetSentAt.set(senderId, now);
       try {
-        const x3dhResult = await respondX3DH({
-          myIdentitySecret: bundle.identityKeyPair.secretKey,
-          mySignedPreKeySecret: bundle.signedPreKey.keyPair.secretKey,
-          myOneTimePreKeySecret: otpSecret,
-          senderIdentityKey,
-          senderEphemeralKey: parsed.ek
-        });
-        session = await initSession(
-          parsed.sid,
-          senderId,
-          x3dhResult.sharedSecret,
-          false
-        );
-        console.log("[Decrypt] X3DH session initialized successfully");
-      } catch (err) {
-        console.error("[Decrypt] X3DH failed:", err);
-        throw new Error(`X3DH failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+        const { getSocket: getSocket2 } = await __vitePreload(async () => {
+          const { getSocket: getSocket3 } = await Promise.resolve().then(() => socket$1);
+          return { getSocket: getSocket3 };
+        }, true ? void 0 : void 0, import.meta.url);
+        const sock = getSocket2();
+        if (sock) {
+          sock.emit("dm:session-reset", { targetUserId: senderId });
+          console.log(`[Decrypt] Sent dm:session-reset to ${senderId}`);
+        }
+      } catch {
       }
-    }
+    };
     if (!session) {
-      console.error("[Decrypt] No ratchet session for peer", senderId, "- message may be out of order or keys missing");
-      throw new Error("No ratchet session for peer - send a new message to re-establish encryption");
+      if (parsed.ek) {
+        try {
+          session = await attemptX3DH();
+        } catch (err) {
+          console.error("[Decrypt] X3DH failed:", err);
+          throw new Error(`X3DH failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
+      }
+      if (!session) {
+        await requestSenderReset();
+        console.error("[Decrypt] No ratchet session for peer", senderId, "- requested sender to reset");
+        throw new Error("No ratchet session for peer - send a new message to re-establish encryption");
+      }
     }
     try {
       const { messageKey, session: updatedSession } = await advanceRecvChain(session, parsed.c);
@@ -33811,6 +34215,27 @@ function useMessages(channelId, isDM = false) {
       return decryptWithMessageKey(encryptedContent, parsed.n, messageKey);
     } catch (err) {
       console.error("[Decrypt] Ratchet decryption failed:", err);
+      if (parsed.ek) {
+        console.log("[Decrypt] Existing session failed, retrying with X3DH handshake");
+        try {
+          await deleteSession(senderId);
+          const freshSession = await attemptX3DH();
+          if (freshSession) {
+            const { messageKey, session: updatedSession } = await advanceRecvChain(freshSession, parsed.c);
+            await saveSession(updatedSession);
+            return decryptWithMessageKey(encryptedContent, parsed.n, messageKey);
+          }
+        } catch (retryErr) {
+          console.error("[Decrypt] X3DH retry also failed:", retryErr);
+        }
+      }
+      try {
+        await deleteSession(senderId);
+        console.log(`[Decrypt] Cleared stale ratchet session for peer ${senderId}`);
+      } catch (delErr) {
+        console.error("[Decrypt] Failed to delete stale session:", delErr);
+      }
+      await requestSenderReset();
       if (err instanceof Error && err.message.includes("behind current")) {
         throw new Error("Message from a previous session (encryption keys changed)");
       }
@@ -33837,9 +34262,28 @@ function useMessages(channelId, isDM = false) {
             } catch {
               throw new Error("Cannot get sender public key");
             }
-            const senderKey = decryptSenderKeyFromUser(parts2[0], parts2[1], senderPubKey, pk2);
-            senderState = createSenderKeyState(chId, senderId, senderKey);
-            await saveSenderKeyState(senderState);
+            try {
+              const senderKey = decryptSenderKeyFromUser(parts2[0], parts2[1], senderPubKey, pk2);
+              senderState = createSenderKeyState(chId, senderId, senderKey);
+              await saveSenderKeyState(senderState);
+            } catch (decryptErr) {
+              console.warn("[Decrypt] Sender key decryption failed (keypair mismatch), requesting rekey from", senderId);
+              await deleteSenderKeyState(chId, senderId);
+              const cacheKey = `${chId}:${senderId}`;
+              delete channelKeyCache$1[cacheKey];
+              try {
+                const { getSocket: getSocket2 } = await __vitePreload(async () => {
+                  const { getSocket: getSocket3 } = await Promise.resolve().then(() => socket$1);
+                  return { getSocket: getSocket3 };
+                }, true ? void 0 : void 0, import.meta.url);
+                const sock = getSocket2();
+                if (sock) {
+                  sock.emit("channel:rekey-request", { channelId: chId, senderId });
+                }
+              } catch {
+              }
+              throw new Error("Failed to decrypt sender key — requested re-distribution from sender");
+            }
           }
         }
       } catch (err) {
@@ -33848,9 +34292,52 @@ function useMessages(channelId, isDM = false) {
       }
     }
     if (!senderState) throw new Error("No sender key state");
-    const { messageKey, state: updatedState } = await advanceSenderRecvChain(senderState, parsed.c);
-    await saveSenderKeyState(updatedState);
-    return decryptWithSenderKey(encryptedContent, parsed.n, messageKey);
+    try {
+      const { messageKey, state: updatedState } = await advanceSenderRecvChain(senderState, parsed.c);
+      await saveSenderKeyState(updatedState);
+      return decryptWithSenderKey(encryptedContent, parsed.n, messageKey);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("behind current")) {
+        console.warn("[Decrypt] Sender key counter behind — sender likely regenerated key, re-fetching for", senderId);
+        await deleteSenderKeyState(chId, senderId);
+        const cacheKey = `${chId}:${senderId}`;
+        delete channelKeyCache$1[cacheKey];
+        try {
+          const keyData = await channelKeyAPI.getKey(chId, senderId);
+          if (keyData?.encryptedKey) {
+            const parts2 = keyData.encryptedKey.split(":");
+            if (parts2.length === 2) {
+              let senderPubKey;
+              try {
+                const profile = await userAPI.getProfile(senderId);
+                senderPubKey = profile.publicKey;
+              } catch {
+                throw new Error("Cannot get sender public key");
+              }
+              const senderKey = decryptSenderKeyFromUser(parts2[0], parts2[1], senderPubKey, pk2);
+              const freshState = createSenderKeyState(chId, senderId, senderKey);
+              const { messageKey, state: updatedState } = await advanceSenderRecvChain(freshState, parsed.c);
+              await saveSenderKeyState(updatedState);
+              return decryptWithSenderKey(encryptedContent, parsed.n, messageKey);
+            }
+          }
+        } catch (retryErr) {
+          console.error("[Decrypt] Re-fetch sender key also failed:", retryErr);
+          try {
+            const { getSocket: getSocket2 } = await __vitePreload(async () => {
+              const { getSocket: getSocket3 } = await Promise.resolve().then(() => socket$1);
+              return { getSocket: getSocket3 };
+            }, true ? void 0 : void 0, import.meta.url);
+            const sock = getSocket2();
+            if (sock) {
+              sock.emit("channel:rekey-request", { channelId: chId, senderId });
+            }
+          } catch {
+          }
+        }
+      }
+      throw err;
+    }
   };
   const decryptMessagesRef = reactExports.useRef(null);
   decryptMessagesRef.current = async (msgs, chId) => {
@@ -33978,7 +34465,7 @@ function useMessages(channelId, isDM = false) {
         results.push({ ...msg, content, sender });
       } catch (err) {
         console.error(`[Decrypt] Failed to decrypt message ${msg.id}:`, err);
-        console.error(`[Decrypt] Message details: version=${parseNonceVersion(msg.nonce).version}, senderId=${msg.senderId}, channelId=${chId}, isDM=${isDM}, hasPrivateKey=${!!privateKeyRef.current}, nonce=${msg.nonce?.substring(0, 80)}`);
+        console.error(`[Decrypt] Message details: version=${parseNonceVersion(msg.nonce).version}, senderId=${msg.senderId}, channelId=${chId}, isDM=${isDM}, hasPrivateKey=${!!privateKeyRef.current}, nonce=${msg.nonce?.substring(0, 200)}`);
         let errorContent = "[This message could not be decrypted - it may be outside your local message history]";
         if (!privateKeyRef.current) {
           errorContent = "[Encryption keys not loaded - please log out and log back in]";
@@ -34333,6 +34820,31 @@ const Bell = createLucideIcon("Bell", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Bug = createLucideIcon("Bug", [
+  ["path", { d: "m8 2 1.88 1.88", key: "fmnt4t" }],
+  ["path", { d: "M14.12 3.88 16 2", key: "qol33r" }],
+  ["path", { d: "M9 7.13v-1a3.003 3.003 0 1 1 6 0v1", key: "d7y7pr" }],
+  [
+    "path",
+    {
+      d: "M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6",
+      key: "xs1cw7"
+    }
+  ],
+  ["path", { d: "M12 20v-9", key: "1qisl0" }],
+  ["path", { d: "M6.53 9C4.6 8.8 3 7.1 3 5", key: "32zzws" }],
+  ["path", { d: "M6 13H2", key: "82j7cp" }],
+  ["path", { d: "M3 21c0-2.1 1.7-3.9 3.8-4", key: "4p0ekp" }],
+  ["path", { d: "M20.97 5c0 2.1-1.6 3.8-3.5 4", key: "18gb23" }],
+  ["path", { d: "M22 13h-4", key: "1jl80f" }],
+  ["path", { d: "M17.2 17c2.1.1 3.8 1.9 3.8 4", key: "k3fwyw" }]
+]);
+/**
+ * @license lucide-react v0.427.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Camera = createLucideIcon("Camera", [
   [
     "path",
@@ -34414,6 +34926,17 @@ const CircleCheckBig = createLucideIcon("CircleCheckBig", [
 const CircleCheck = createLucideIcon("CircleCheck", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+]);
+/**
+ * @license lucide-react v0.427.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const CircleHelp = createLucideIcon("CircleHelp", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "1u773s" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
 ]);
 /**
  * @license lucide-react v0.427.0 - ISC
@@ -34645,6 +35168,23 @@ const Key = createLucideIcon("Key", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Lightbulb = createLucideIcon("Lightbulb", [
+  [
+    "path",
+    {
+      d: "M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5",
+      key: "1gvzjb"
+    }
+  ],
+  ["path", { d: "M9 18h6", key: "x1upvd" }],
+  ["path", { d: "M10 22h4", key: "ceow96" }]
+]);
+/**
+ * @license lucide-react v0.427.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Link = createLucideIcon("Link", [
   ["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", key: "1cjeqo" }],
   ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71", key: "19qd67" }]
@@ -34700,6 +35240,15 @@ const Maximize2 = createLucideIcon("Maximize2", [
   ["polyline", { points: "9 21 3 21 3 15", key: "1avn1i" }],
   ["line", { x1: "21", x2: "14", y1: "3", y2: "10", key: "ota7mn" }],
   ["line", { x1: "3", x2: "10", y1: "21", y2: "14", key: "1atl0r" }]
+]);
+/**
+ * @license lucide-react v0.427.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const MessageCircle = createLucideIcon("MessageCircle", [
+  ["path", { d: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z", key: "vv11sd" }]
 ]);
 /**
  * @license lucide-react v0.427.0 - ISC
@@ -35338,29 +35887,31 @@ function RecoveryKeyInput({ onSubmit, onGenerateNew }) {
             ] }) : "Restore Keys"
           }
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-full border-t border-blite-glass-border" }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "relative flex justify-center text-xs", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "px-2 bg-blite-bg-secondary text-blite-text-muted", children: "or" }) })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            type: "button",
-            onClick: handleGenerateNew,
-            disabled: loading || generatingNew,
-            className: "w-full px-4 py-2 rounded-md border border-blite-danger/30 text-sm text-blite-danger hover:bg-blite-danger/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2",
-            children: generatingNew ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { size: 14, className: "animate-spin" }),
-              "Generating..."
-            ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { size: 14 }),
-              "Lost Key? Generate New Keys"
-            ] })
-          }
-        )
+        onGenerateNew && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-full border-t border-blite-glass-border" }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "relative flex justify-center text-xs", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "px-2 bg-blite-bg-secondary text-blite-text-muted", children: "or" }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: handleGenerateNew,
+              disabled: loading || generatingNew,
+              className: "w-full px-4 py-2 rounded-md border border-blite-danger/30 text-sm text-blite-danger hover:bg-blite-danger/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2",
+              children: generatingNew ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { size: 14, className: "animate-spin" }),
+                "Generating..."
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { size: 14 }),
+                "Lost Key? Generate New Keys"
+              ] })
+            }
+          )
+        ] })
       ] })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "mt-4 text-xs text-center text-blite-text-muted", children: "Generating new keys will permanently delete access to old messages." })
+    onGenerateNew && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "mt-4 text-xs text-center text-blite-text-muted", children: "Generating new keys will permanently delete access to old messages." })
   ] });
 }
 function RecoveryKeyModal({ recoveryKey, recoverableKeys, username, onConfirm }) {
@@ -35608,7 +36159,7 @@ function LoginForm() {
   };
   const handleRecovery = async (recoveryKey) => {
     const blob = await keyAPI.getRecovery();
-    const keys = decryptKeysFromRecovery(recoveryKey, blob);
+    const keys = await decryptKeysFromRecovery(recoveryKey, blob);
     const identitySecret = decodeBase64(keys.identitySecretKey);
     const signingSecret = decodeBase64(keys.signingSecretKey);
     const signedPreKeySecret = decodeBase64(keys.signedPreKeySecret);
@@ -35687,7 +36238,7 @@ function LoginForm() {
         signedPreKeyId: bundle.signedPreKey.id,
         signedPreKeySig: encodeBase64$2(bundle.signedPreKey.signature)
       };
-      const recoveryBlob = encryptKeysForRecovery(recKey, recoverableKeys);
+      const recoveryBlob = await encryptKeysForRecovery(recKey, recoverableKeys);
       try {
         await keyAPI.uploadRecovery(recoveryBlob);
       } catch {
@@ -35700,44 +36251,6 @@ function LoginForm() {
     } finally {
       setMigrationLoading(false);
     }
-  };
-  const handleGenerateNewKeys = async () => {
-    const bundle = generateKeyBundle();
-    const uploadable = bundleToUploadable(bundle);
-    await keyAPI.uploadBundle(uploadable);
-    await storePrivateKey(bundle.identityKeyPair.secretKey);
-    setPrivateKey(bundle.identityKeyPair.secretKey);
-    setSigningKey(bundle.signingKeyPair.secretKey);
-    setSignedPreKeySecret(bundle.signedPreKey.keyPair.secretKey);
-    const serialized = serializeKeyBundle(bundle);
-    await storeKeyBundle(serialized);
-    try {
-      const storeKey = await deriveSessionStoreKey(bundle.identityKeyPair.secretKey);
-      await initSessionDB(storeKey);
-    } catch (dbErr) {
-      console.error("[LoginForm] Session DB init failed after generating new keys:", dbErr);
-    }
-    setKeyBundleLoaded(true);
-    try {
-      await userAPI.updateProfile({ publicKey: encodeBase64$2(bundle.identityKeyPair.publicKey) });
-    } catch (err) {
-      console.warn("[LoginForm] Failed to sync publicKey to profile:", err);
-    }
-    connectSocket();
-    const recKey = generateRecoveryKey();
-    const blob = encryptKeysForRecovery(recKey, {
-      identityPublicKey: serialized.identityPublicKey,
-      identitySecretKey: serialized.identitySecretKey,
-      signingPublicKey: serialized.signingPublicKey,
-      signingSecretKey: serialized.signingSecretKey,
-      signedPreKeyPublic: serialized.signedPreKeyPublic,
-      signedPreKeySecret: serialized.signedPreKeySecret,
-      signedPreKeyId: serialized.signedPreKeyId,
-      signedPreKeySig: serialized.signedPreKeySig
-    });
-    await keyAPI.uploadRecovery(blob);
-    setNeedsRecovery(false);
-    setMigrationRecoveryKey(recKey);
   };
   if (migrationRecoveryKey) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -35756,7 +36269,7 @@ function LoginForm() {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-center min-h-screen bg-blite-bg-primary relative overflow-hidden", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute top-1/4 -left-32 w-96 h-96 rounded-full opacity-20 blur-3xl", style: { background: "var(--blite-gradient-start)" } }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-1/4 -right-32 w-96 h-96 rounded-full opacity-20 blur-3xl", style: { background: "var(--blite-gradient-end)" } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "relative z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsx(RecoveryKeyInput, { onSubmit: handleRecovery, onGenerateNew: handleGenerateNewKeys }) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "relative z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsx(RecoveryKeyInput, { onSubmit: handleRecovery }) })
     ] });
   }
   if (needsMigration) {
@@ -35888,8 +36401,8 @@ function RegisterForm() {
   const handleInfoSubmit = (e) => {
     e.preventDefault();
     setError("");
-    if (!username.trim() || !displayName.trim() || !email.trim() || !password || !confirmPassword) {
-      setError("Please fill in all fields.");
+    if (!username.trim() || !displayName.trim() || !password || !confirmPassword) {
+      setError("Please fill in all required fields.");
       return;
     }
     if (username.trim().length < 3) {
@@ -35931,7 +36444,7 @@ function RegisterForm() {
       const response = await authAPI.register({
         username: username.trim(),
         displayName: displayName.trim(),
-        email: email.trim(),
+        ...email.trim() ? { email: email.trim() } : {},
         password,
         publicKey: encodeBase64$1(bundle.identityKeyPair.publicKey),
         signingKey: encodeBase64$1(bundle.signingKeyPair.publicKey),
@@ -35945,6 +36458,7 @@ function RegisterForm() {
       const serialized = serializeKeyBundle(bundle);
       await storeKeyBundle(serialized);
       setKeyBundleLoaded(true);
+      useAuthStore.setState({ token: response.token });
       localStorage.setItem("blite_token", response.token);
       setPendingAuthData({ user: response.user, token: response.token });
       setLoadingStage("Generating recovery key...");
@@ -35959,7 +36473,7 @@ function RegisterForm() {
         signedPreKeyId: bundle.signedPreKey.id,
         signedPreKeySig: encodeBase64$1(bundle.signedPreKey.signature)
       };
-      const recoveryBlob = encryptKeysForRecovery(recKey, recoverableKeys2);
+      const recoveryBlob = await encryptKeysForRecovery(recKey, recoverableKeys2);
       try {
         await keyAPI.uploadRecovery(recoveryBlob);
       } catch (err) {
@@ -36044,7 +36558,10 @@ function RegisterForm() {
               )
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "reg-email", className: "block text-xs font-semibold text-blite-text-secondary uppercase tracking-wide mb-1.5", children: "Email" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { htmlFor: "reg-email", className: "block text-xs font-semibold text-blite-text-secondary uppercase tracking-wide mb-1.5", children: [
+                "Email ",
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "normal-case font-normal text-blite-text-muted", children: "(optional)" })
+              ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "input",
                 {
@@ -41515,6 +42032,14 @@ function UserBar() {
             children: isDeafened ? /* @__PURE__ */ jsxRuntimeExports.jsx(EarOff, { size: 16 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Headphones, { size: 16 })
           }
         ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { content: "Help & Feedback", position: "top", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            onClick: () => openModal("feedback"),
+            className: "p-2 rounded-lg text-blite-text-muted hover:text-blite-text-primary hover:bg-blite-bg-hover transition-colors",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleHelp, { size: 16 })
+          }
+        ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { content: "User Settings", position: "top", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
@@ -45484,11 +46009,13 @@ function MessageInput({ channelId, channelName, isDM = false }) {
               myIdentitySecret: privateKey,
               recipientBundle: bundle
             });
+            const sessionId = createCanonicalSessionId(user.id, otherUser.id);
+            const amInitiator = isCanonicalInitiator(user.id, otherUser.id);
             session = await initSession(
-              `${user.id}:${otherUser.id}`,
+              sessionId,
               otherUser.id,
               x3dhResult.sharedSecret,
-              true
+              amInitiator
             );
             await saveSession(session);
             const { messageKey, session: updatedSession } = await advanceSendChain(session);
@@ -45534,6 +46061,10 @@ function MessageInput({ channelId, channelName, isDM = false }) {
     if (keyBundleLoaded) {
       try {
         let senderState = await getSenderKeyState(channelId, user.id);
+        if (senderState && !senderState.originalKey) {
+          console.log("[Encrypt] Sender key state missing originalKey — regenerating");
+          senderState = null;
+        }
         if (!senderState) {
           const senderKey = generateSenderKey();
           senderState = createSenderKeyState(channelId, user.id, senderKey);
@@ -48609,8 +49140,7 @@ function PrivacyTab() {
     setShowRecoveryWarning(false);
     setLoadingRecovery(true);
     try {
-      const recoveryBlob = await keyAPI.getRecovery();
-      const keys = decryptKeysFromRecovery(recoveryBlob.encrypted, recoveryBlob.nonce);
+      await keyAPI.getRecovery();
       setRecoveryKey("Recovery key was shown during signup. Please refer to your saved copy.");
     } catch (err) {
       console.error("Failed to fetch recovery key:", err);
@@ -49666,11 +50196,13 @@ ${content}`;
                 myIdentitySecret: privateKey,
                 recipientBundle: bundle
               });
+              const sessionId = createCanonicalSessionId(user.id, otherUser.id);
+              const amInitiator = isCanonicalInitiator(user.id, otherUser.id);
               session = await initSession(
-                `${user.id}:${otherUser.id}`,
+                sessionId,
                 otherUser.id,
                 x3dhResult.sharedSecret,
-                true
+                amInitiator
               );
               await saveSession(session);
               const { messageKey, session: updated } = await advanceSendChain(session);
@@ -49766,6 +50298,121 @@ ${content}`;
       targets.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-blite-text-muted text-center py-4", children: "No matching channels or DMs." })
     ] })
   ] });
+}
+const TYPES = [
+  { id: "bug", label: "Bug Report", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Bug, { size: 15 }), description: "Something is broken" },
+  { id: "feature", label: "Feature Request", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Lightbulb, { size: 15 }), description: "Suggest an idea" },
+  { id: "general", label: "General Feedback", icon: /* @__PURE__ */ jsxRuntimeExports.jsx(MessageCircle, { size: 15 }), description: "Anything else" }
+];
+function FeedbackModal() {
+  const closeModal = useUIStore((s) => s.closeModal);
+  const [type, setType] = reactExports.useState("bug");
+  const [subject, setSubject] = reactExports.useState("");
+  const [description, setDescription] = reactExports.useState("");
+  const [loading, setLoading] = reactExports.useState(false);
+  const [error, setError] = reactExports.useState("");
+  const [success, setSuccess] = reactExports.useState(false);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!subject.trim() || !description.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      await feedbackAPI.submit({ type, subject: subject.trim(), description: description.trim() });
+      setSuccess(true);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Failed to submit feedback. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  if (success) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx(Modal, { title: "Help & Feedback", onClose: closeModal, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "py-8 text-center space-y-4", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-14 h-14 rounded-full bg-blite-success/20 flex items-center justify-center mx-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { size: 24, className: "text-blite-success" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-base font-semibold text-blite-text-primary", children: "Thank you!" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-blite-text-secondary mt-1", children: "Your feedback has been submitted." })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: closeModal, className: "btn-primary", children: "Close" })
+    ] }) });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Modal, { title: "Help & Feedback", onClose: closeModal, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSubmit, className: "space-y-4", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-center py-2", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-12 h-12 rounded-lg gradient-accent flex items-center justify-center mx-auto mb-2 glow-accent", children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleHelp, { size: 20, className: "text-white" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-blite-text-secondary", children: "Found a bug, have a suggestion, or just want to share feedback?" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "block text-xs font-semibold text-blite-text-secondary uppercase tracking-wide mb-2", children: "Type" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-3 gap-2", children: TYPES.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          type: "button",
+          onClick: () => setType(t2.id),
+          className: `flex flex-col items-center gap-1.5 px-2 py-3 rounded-lg border text-xs font-medium transition-all ${type === t2.id ? "border-blite-accent bg-blite-accent/10 text-blite-accent" : "border-blite-glass-border text-blite-text-muted hover:text-blite-text-primary hover:bg-blite-bg-hover"}`,
+          children: [
+            t2.icon,
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: t2.label })
+          ]
+        },
+        t2.id
+      )) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "block text-xs font-semibold text-blite-text-secondary uppercase tracking-wide mb-1.5", children: "Subject" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          type: "text",
+          value: subject,
+          onChange: (e) => setSubject(e.target.value),
+          maxLength: 100,
+          className: "input-field",
+          placeholder: "Brief summary of your feedback",
+          required: true,
+          autoFocus: true
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-blite-text-muted mt-1 text-right", children: [
+        subject.length,
+        "/100"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "block text-xs font-semibold text-blite-text-secondary uppercase tracking-wide mb-1.5", children: "Description" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "textarea",
+        {
+          value: description,
+          onChange: (e) => setDescription(e.target.value),
+          maxLength: 1e3,
+          rows: 5,
+          className: "input-field resize-none",
+          placeholder: "Describe in detail. For bugs, include steps to reproduce.",
+          required: true
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-xs text-blite-text-muted mt-1 text-right", children: [
+        description.length,
+        "/1000"
+      ] })
+    ] }),
+    error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-3 rounded-md bg-blite-danger/10 border border-blite-danger/30 text-blite-danger text-sm", children: error }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-end gap-3 pt-1", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: closeModal, className: "btn-secondary", children: "Cancel" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "submit",
+          disabled: loading || !subject.trim() || !description.trim(),
+          className: "btn-primary flex items-center gap-2",
+          children: loading ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { size: 14, className: "animate-spin" }),
+            "Submitting..."
+          ] }) : "Submit"
+        }
+      )
+    ] })
+  ] }) });
 }
 function IncomingCallModal() {
   const incomingCall = useCallStore((s) => s.incomingCall);
@@ -50269,6 +50916,7 @@ function AppLayout() {
     activeModal === "userSettings" && /* @__PURE__ */ jsxRuntimeExports.jsx(UserSettings, {}),
     activeModal === "addFriend" && /* @__PURE__ */ jsxRuntimeExports.jsx(AddFriendModal, {}),
     activeModal === "inbox" && /* @__PURE__ */ jsxRuntimeExports.jsx(NotificationInbox, {}),
+    activeModal === "feedback" && /* @__PURE__ */ jsxRuntimeExports.jsx(FeedbackModal, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsx(ForwardModal, {}),
     showQuickSwitcher && /* @__PURE__ */ jsxRuntimeExports.jsx(QuickSwitcher, { onClose: () => setShowQuickSwitcher(false) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(IncomingCallModal, {}),
@@ -50401,7 +51049,7 @@ function LandingPage() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-red-400", children: "Really" }),
           " Taking"
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-blite-text-secondary text-lg", children: "When a product is free, you're the product" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-blite-text-secondary text-lg", children: "Your messages belong to you — not us, not advertisers, not anyone" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -51455,6 +52103,7 @@ function App() {
       } catch (err) {
         console.error("Session restore failed:", err);
         localStorage.removeItem("blite_token");
+        useAuthStore.setState({ token: null, user: null, isAuthenticated: false });
         setLoading(false);
       }
     };
