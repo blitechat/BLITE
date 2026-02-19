@@ -52,7 +52,7 @@ BLITE is an open-source, end-to-end encrypted communication platform. This Priva
 - Right to deletion
 - Right to opt-out of data sales (BLITE does not sell data)
 
-**To exercise your rights, contact**: privacy@blite.chat
+**To exercise your rights, contact**: support@blite.chat
 
 ## Data Sharing
 
@@ -91,7 +91,7 @@ We may update this policy. Continued use after changes constitutes acceptance.
 ## Contact
 
 For privacy questions or to exercise your rights:
-- Email: privacy@blite.chat
+- Email: support@blite.chat
 - GitHub: https://github.com/blitechat/BLITE
 
 ## Legal Basis (GDPR)

@@ -69,7 +69,7 @@ Violations may result in:
 - We may suspend accounts engaged in abuse
 
 ### DMCA
-If you believe content infringes your copyright, contact: dmca@blite.chat
+If you believe content infringes your copyright, contact: support@blite.chat
 
 ## Privacy
 
@@ -172,7 +172,7 @@ These Terms and the Privacy Policy constitute the entire agreement between you a
 ## Contact
 
 For questions or legal notices:
-- Email: legal@blite.chat
+- Email: support@blite.chat
 - Address: [Your Business Address]
 
 ## Open Source
