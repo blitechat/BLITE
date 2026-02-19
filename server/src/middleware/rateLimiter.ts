@@ -19,11 +19,10 @@ export const authLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
-// Stricter limiter for registration
+// Registration limiter (uncapped — self-hosted instances control their own signups)
 export const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // Limit each IP to 5 registrations per hour
-  message: 'Too many accounts created, please try again later.',
+  windowMs: 60 * 60 * 1000,
+  max: 0, // 0 = unlimited
   standardHeaders: true,
   legacyHeaders: false,
 });
