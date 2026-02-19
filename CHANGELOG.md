@@ -26,12 +26,7 @@
 ## [1.0.4] - 2026-02-13
 
 ### Security Enhancements
-- **Rate Limiting**: Added comprehensive rate limiting to prevent abuse
-  - General API: 100 requests per 15 minutes
-  - Authentication: 10 attempts per 15 minutes
-  - Registration: 5 registrations per hour
-  - Uploads: 50 uploads per 15 minutes
-  - Messages: 30 messages per minute
+- **Rate Limiting**: Added comprehensive rate limiting across all endpoints to prevent abuse
 - **Security Headers**: Added Helmet.js for security headers
 - **SSRF Protection**: Link preview now validates URLs to prevent internal network scanning
 - **Input Validation**: Added express-validator for comprehensive input sanitization
