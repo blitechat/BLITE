@@ -343,6 +343,30 @@ export function needsSignedPreKeyRotation(updatedAt: string | null): boolean {
 }
 
 /**
+ * Remove a used one-time pre-key from the stored bundle.
+ * This should be called after successfully responding to an X3DH handshake.
+ * @param otpKeyId The ID of the OTP key to remove
+ * @returns true if the key was found and removed, false otherwise
+ */
+export async function removeUsedOTP(otpKeyId: number): Promise<boolean> {
+  const storedBundle = await loadKeyBundle()
+  if (!storedBundle) return false
+
+  const originalCount = storedBundle.oneTimePreKeys.length
+  storedBundle.oneTimePreKeys = storedBundle.oneTimePreKeys.filter(
+    (otp) => otp.id !== otpKeyId
+  )
+
+  if (storedBundle.oneTimePreKeys.length < originalCount) {
+    await storeKeyBundle(storedBundle)
+    console.log(`[KeyManager] Removed used OTP key ${otpKeyId} from local bundle`)
+    return true
+  }
+
+  return false
+}
+
+/**
  * Derive a key for encrypting session store data
  */
 export async function deriveSessionStoreKey(identitySecretKey: Uint8Array): Promise<Uint8Array> {

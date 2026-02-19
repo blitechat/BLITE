@@ -27,6 +27,7 @@ import {
   deriveSessionStoreKey,
   createCanonicalSessionId,
   isCanonicalInitiator,
+  removeUsedOTP,
 } from '@renderer/services/e2ee'
 import { storeSentMessage, getSentMessage } from '@renderer/services/sentMessageStore'
 import type { Message } from '@shared/types'
@@ -253,6 +254,12 @@ export function useMessages(channelId: string | null, isDM = false): UseMessages
         x3dhResult.sharedSecret,
         amInitiator
       )
+
+      // SECURITY: Remove the used OTP from the local bundle to prevent reuse
+      if (parsed.otk != null) {
+        await removeUsedOTP(parsed.otk)
+      }
+
       console.log('[Decrypt] X3DH session initialized successfully with sessionId:', canonicalSessionId, 'amInitiator:', amInitiator)
       return newSession
     }

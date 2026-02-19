@@ -4,6 +4,28 @@
  */
 
 /**
+ * Securely zero a Uint8Array to prevent key material from lingering in memory.
+ * This overwrites the array contents with zeros.
+ * Note: JavaScript GC may still leave copies, but this reduces the window.
+ */
+export function secureZero(arr: Uint8Array): void {
+  if (!arr || arr.length === 0) return
+  // Use crypto.getRandomValues first to prevent compiler optimization from removing the zeroing
+  crypto.getRandomValues(arr)
+  // Then zero it
+  arr.fill(0)
+}
+
+/**
+ * Securely zero multiple Uint8Arrays
+ */
+export function secureZeroAll(...arrays: (Uint8Array | undefined | null)[]): void {
+  for (const arr of arrays) {
+    if (arr) secureZero(arr)
+  }
+}
+
+/**
  * Compute HMAC-SHA256(key, data)
  */
 export async function hmacSHA256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {

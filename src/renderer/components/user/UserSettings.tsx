@@ -10,7 +10,6 @@ import { userAPI, uploadAPI, keyAPI } from '@renderer/services/api'
 import { clearPrivateKey } from '@renderer/services/crypto'
 import { disconnectSocket } from '@renderer/services/socket'
 import {
-  decryptKeysFromRecovery,
   formatRecoveryKey,
   generateOneTimePreKeys,
 } from '@renderer/services/e2ee'
@@ -895,11 +894,10 @@ function PrivacyTab() {
     setShowRecoveryWarning(false)
     setLoadingRecovery(true)
     try {
-      const recoveryBlob = await keyAPI.getRecovery()
-      const keys = decryptKeysFromRecovery(recoveryBlob.encrypted, recoveryBlob.nonce)
-
-      // The recovery key is derived from the encrypted blob - we need to show the original
-      // For now, we'll show a message that the key was shown during signup
+      // Check if a recovery blob exists on the server
+      await keyAPI.getRecovery()
+      // The recovery key is a user secret that was shown only during signup.
+      // We cannot retrieve it from the server - the user must have saved it.
       setRecoveryKey('Recovery key was shown during signup. Please refer to your saved copy.')
     } catch (err) {
       console.error('Failed to fetch recovery key:', err)

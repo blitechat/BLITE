@@ -3,7 +3,7 @@
  */
 
 // Crypto utilities
-export { hmacSHA256, hkdf, concatBytes } from './crypto-utils'
+export { hmacSHA256, hkdf, concatBytes, secureZero, secureZeroAll } from './crypto-utils'
 
 // Key management
 export {
@@ -19,6 +19,7 @@ export {
   needsOTPReplenishment,
   needsSignedPreKeyRotation,
   deriveSessionStoreKey,
+  removeUsedOTP,
 } from './keyManager'
 export type { KeyBundle, SerializedKeyBundle, UploadableKeyBundle } from './keyManager'
 
@@ -30,7 +31,7 @@ export {
 } from './x3dh'
 export type { RemoteKeyBundle, X3DHResult } from './x3dh'
 
-// Symmetric ratchet
+// Double Ratchet (symmetric + DH ratchet)
 export {
   initSession,
   advanceSendChain,
@@ -39,8 +40,14 @@ export {
   decryptWithMessageKey,
   createCanonicalSessionId,
   isCanonicalInitiator,
+  // DH ratchet functions for enhanced forward secrecy
+  performDHRatchetReceive,
+  performDHRatchetSend,
+  advanceRecvChainWithDH,
+  advanceSendChainWithDH,
+  sessionSupportsDHRatchet,
 } from './ratchet'
-export type { RatchetSession } from './ratchet'
+export type { RatchetSession, AdvanceResult } from './ratchet'
 
 // Session store (IndexedDB)
 export {

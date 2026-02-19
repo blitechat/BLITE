@@ -39,6 +39,8 @@ sudo iptables -A INPUT -p udp --dport 40000:40100 -j ACCEPT
 
 ## Custom Domain with HTTPS
 
+### Option A: Included Caddy (easiest, no existing proxy)
+
 If you have a domain name pointing to your server, the setup script will configure it automatically. To enable the Caddy reverse proxy for auto-HTTPS:
 
 1. Run `bash setup.sh` and enter your domain when prompted
@@ -46,6 +48,45 @@ If you have a domain name pointing to your server, the setup script will configu
 3. Run `docker compose up -d`
 
 Caddy auto-provisions Let's Encrypt certificates — no certbot or nginx needed.
+
+### Option B: Your Existing Reverse Proxy (nginx, Traefik, Caddy, etc.)
+
+If you already have a reverse proxy running, skip the bundled Caddy entirely and just proxy to port 3001.
+
+BLITE uses WebSockets (Socket.IO), so make sure your proxy config supports connection upgrades.
+
+**nginx example:**
+```nginx
+server {
+    listen 443 ssl;
+    server_name your.domain.com;
+
+    # Your existing SSL config here
+
+    location / {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**Traefik (Docker labels) example:**
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.blite.rule=Host(`your.domain.com`)"
+  - "traefik.http.routers.blite.entrypoints=websecure"
+  - "traefik.http.routers.blite.tls.certresolver=letsencrypt"
+  - "traefik.http.services.blite.loadbalancer.server.port=3001"
+```
+
+**Note:** Voice and video (full mode) use WebRTC for media transport, which goes directly over UDP — not through your reverse proxy. You still need UDP ports 40000–40100 open at the firewall level regardless of which proxy you use.
 
 ## Requirements
 

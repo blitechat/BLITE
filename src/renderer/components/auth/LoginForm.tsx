@@ -150,7 +150,7 @@ export default function LoginForm() {
   const handleRecovery = async (recoveryKey: string) => {
     // Download recovery blob from server
     const blob = await keyAPI.getRecovery()
-    const keys = decryptKeysFromRecovery(recoveryKey, blob)
+    const keys = await decryptKeysFromRecovery(recoveryKey, blob)
 
     // Restore keys
     const identitySecret = decodeBase64(keys.identitySecretKey)
@@ -262,7 +262,7 @@ export default function LoginForm() {
         signedPreKeyId: bundle.signedPreKey.id,
         signedPreKeySig: encodeBase64(bundle.signedPreKey.signature),
       }
-      const recoveryBlob = encryptKeysForRecovery(recKey, recoverableKeys)
+      const recoveryBlob = await encryptKeysForRecovery(recKey, recoverableKeys)
       try {
         await keyAPI.uploadRecovery(recoveryBlob)
       } catch {
@@ -318,7 +318,7 @@ export default function LoginForm() {
 
     // Generate recovery key for the new bundle
     const recKey = generateRecoveryKey()
-    const blob = encryptKeysForRecovery(recKey, {
+    const blob = await encryptKeysForRecovery(recKey, {
       identityPublicKey: serialized.identityPublicKey,
       identitySecretKey: serialized.identitySecretKey,
       signingPublicKey: serialized.signingPublicKey,

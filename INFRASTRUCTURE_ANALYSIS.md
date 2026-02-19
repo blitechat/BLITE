@@ -190,7 +190,7 @@ CORS protection
 - [ ] Advanced audit logging
 - [ ] Two-factor authentication
 - [ ] Device verification
-- [ ] Encrypted voice/video (E2EE for WebRTC)
+- [x] Encrypted voice/video (E2EE for WebRTC) — AES-128-GCM via Insertable Streams
 
 ---
 

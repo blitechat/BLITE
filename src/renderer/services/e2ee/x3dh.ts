@@ -4,7 +4,7 @@
  */
 import nacl from 'tweetnacl'
 import naclUtil from 'tweetnacl-util'
-import { hkdf, concatBytes } from './crypto-utils'
+import { hkdf, concatBytes, secureZeroAll } from './crypto-utils'
 
 const { encodeBase64, decodeBase64 } = naclUtil
 
@@ -70,6 +70,9 @@ export async function performX3DH(params: X3DHInitiatorParams): Promise<X3DHResu
   // Generate ephemeral key pair
   const ephemeral = nacl.box.keyPair()
 
+  // Store public key before we zero the secret
+  const ephemeralPublicKey = encodeBase64(ephemeral.publicKey)
+
   // DH1: myIdentity x theirSignedPreKey
   const dh1 = nacl.box.before(theirSignedPreKey, myIdentitySecret)
 
@@ -81,23 +84,30 @@ export async function performX3DH(params: X3DHInitiatorParams): Promise<X3DHResu
 
   let dhConcat: Uint8Array
   let usedOtpKeyId: number | undefined
+  let dh4: Uint8Array | undefined
 
   if (recipientBundle.oneTimePreKey) {
     // DH4: myEphemeral x theirOTP
     const theirOTP = decodeBase64(recipientBundle.oneTimePreKey)
-    const dh4 = nacl.box.before(theirOTP, ephemeral.secretKey)
+    dh4 = nacl.box.before(theirOTP, ephemeral.secretKey)
     dhConcat = concatBytes(dh1, dh2, dh3, dh4)
     usedOtpKeyId = recipientBundle.oneTimePreKeyId
   } else {
     dhConcat = concatBytes(dh1, dh2, dh3)
   }
 
+  // SECURITY: Zero ephemeral secret key immediately after DH operations
+  secureZero(ephemeral.secretKey)
+
   // Derive shared secret using HKDF
   const sharedSecret = await hkdf(dhConcat, null, 'blite-x3dh-v1', 32)
 
+  // SECURITY: Zero intermediate DH values after deriving shared secret
+  secureZeroAll(dh1, dh2, dh3, dh4, dhConcat)
+
   return {
     sharedSecret,
-    ephemeralPublicKey: encodeBase64(ephemeral.publicKey),
+    ephemeralPublicKey,
     usedOtpKeyId,
   }
 }
@@ -128,16 +138,23 @@ export async function respondX3DH(params: X3DHResponderParams): Promise<{ shared
   const dh3 = nacl.box.before(theirEphemeral, mySignedPreKeySecret)
 
   let dhConcat: Uint8Array
+  let dh4: Uint8Array | undefined
 
   if (myOneTimePreKeySecret) {
     // DH4: theirEphemeral x myOTP
-    const dh4 = nacl.box.before(theirEphemeral, myOneTimePreKeySecret)
+    dh4 = nacl.box.before(theirEphemeral, myOneTimePreKeySecret)
     dhConcat = concatBytes(dh1, dh2, dh3, dh4)
   } else {
     dhConcat = concatBytes(dh1, dh2, dh3)
   }
 
   const sharedSecret = await hkdf(dhConcat, null, 'blite-x3dh-v1', 32)
+
+  // SECURITY: Zero intermediate DH values after deriving shared secret
+  secureZeroAll(dh1, dh2, dh3, dh4, dhConcat)
+
+  // Note: OTP secret is NOT zeroed here because it's caller-owned data
+  // The caller should handle removal via removeUsedOTP()
 
   return { sharedSecret }
 }

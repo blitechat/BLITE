@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.2.9] - 2026-02-19
+
+### Security Enhancements
+- **Voice E2EE Buffer Fix**: Fixed `DataError: AES Key data must be 128 or 256 bits` caused by `ArrayBuffer` view offset mismatch in `importKey` calls
+- **Key Material Zeroing**: Added `secureZero()` to voice key cleanup and rotation for forward secrecy
+- **Random keyId Initialization**: Voice E2EE keyId now starts at a random value per session to reduce predictability
+- **Grace Period Key Collision**: Prevent keyId collisions when counter wraps around 256
+- **Double Ratchet Implementation**: Added full DH ratchet functions (`advanceSendChainWithDH`, `advanceRecvChainWithDH`) for stronger post-compromise security
+- **Recovery Key Upgrade**: New recovery blobs use PBKDF2-SHA256 with 100k iterations (legacy SHA-512 still supported for decryption)
+- **X3DH Hardening**: Added intermediate DH value zeroing and ephemeral key cleanup
+
+### Bug Fixes
+- Fixed voice E2EE key import failing when `nacl.box.open` returns a `Uint8Array` view into a larger `ArrayBuffer`
+- Fixed recovery key upload failing silently during registration
+- Fixed DM call bidirectional audio by waiting for E2EE key exchange
+- Fixed nullable email on registration
+
+### Features
+- Added feedback modal with Telegram notifications
+- Added THREAT_MODEL.md documenting all cryptographic protocols and known limitations
+
+---
+
 ## [1.0.4] - 2026-02-13
 
 ### Security Enhancements

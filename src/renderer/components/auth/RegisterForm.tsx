@@ -145,7 +145,7 @@ export default function RegisterForm() {
         signedPreKeySig: encodeBase64(bundle.signedPreKey.signature),
       }
 
-      const recoveryBlob = encryptKeysForRecovery(recKey, recoverableKeys)
+      const recoveryBlob = await encryptKeysForRecovery(recKey, recoverableKeys)
 
       // Upload encrypted recovery blob to server
       try {

@@ -14,6 +14,7 @@ import nacl from 'tweetnacl'
 import naclUtil from 'tweetnacl-util'
 import { getSocket } from '../socket'
 import { useVoiceStore } from '../../stores/voiceStore'
+import { secureZero } from './crypto-utils'
 
 const { encodeBase64, decodeBase64 } = naclUtil
 
@@ -38,7 +39,8 @@ interface PeerKeyState {
 }
 
 let localKey: LocalKeyState | null = null
-let nextKeyId = 0
+// Start with a random keyId to reduce predictability and collision risk across sessions
+let nextKeyId = Math.floor(Math.random() * 256)
 
 // Current peer keys indexed by userId
 const peerKeys = new Map<string, PeerKeyState>()
@@ -150,12 +152,22 @@ export async function generateVoiceKey(): Promise<{ key: CryptoKey; rawKey: Uint
   const rawKey = crypto.getRandomValues(new Uint8Array(AES_KEY_LENGTH / 8))
   const key = await crypto.subtle.importKey(
     'raw',
-    rawKey.buffer as ArrayBuffer,
+    rawKey.buffer.slice(rawKey.byteOffset, rawKey.byteOffset + rawKey.byteLength),
     { name: 'AES-GCM', length: AES_KEY_LENGTH },
     false,
     ['encrypt', 'decrypt']
   )
   const keyId = (nextKeyId++) & 0xff
+
+  // SECURITY: Clear any grace-period keys with the same keyId to prevent confusion
+  // when the counter wraps around 256. This is extremely unlikely in practice
+  // (would require 256 key rotations in <2 seconds) but handles the edge case.
+  for (const graceKey of previousPeerKeys.keys()) {
+    if (graceKey.endsWith(`:${keyId}`)) {
+      previousPeerKeys.delete(graceKey)
+    }
+  }
+
   return { key, rawKey, keyId }
 }
 
@@ -261,7 +273,7 @@ export async function handlePeerVoiceKey(
 
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    rawKey,
+    rawKey.buffer.slice(rawKey.byteOffset, rawKey.byteOffset + rawKey.byteLength),
     { name: 'AES-GCM', length: AES_KEY_LENGTH },
     false,
     ['decrypt']
@@ -767,30 +779,50 @@ export async function initVoiceE2EE(channelId: string): Promise<void> {
 
 /**
  * Clean up all voice E2EE state.
+ * SECURITY: Zeroes key material before clearing references for forward secrecy.
  */
 export function cleanupVoiceE2EE(): void {
+  // SECURITY: Zero local AES voice key before clearing
+  if (localKey) {
+    secureZero(localKey.rawKey)
+  }
   localKey = null
+
+  // SECURITY: Zero ephemeral session DH secret key before clearing
+  if (sessionKeyPair) {
+    secureZero(sessionKeyPair.secretKey)
+  }
   sessionKeyPair = null
+
   peerKeys.clear()
   previousPeerKeys.clear()
   peerSessionPublicKeys.clear()
   pendingIncomingKeys.splice(0)
+  // Reset keyId to a new random value for the next session
+  nextKeyId = Math.floor(Math.random() * 256)
   useVoiceStore.getState().setVoiceE2EE(false)
-  console.log('[VoiceE2EE] Cleaned up')
+  console.log('[VoiceE2EE] Cleaned up (keys zeroed)')
 }
 
 /**
  * Rotate voice key (e.g., when a peer leaves). Generates new key,
  * keeps old key available briefly for in-flight frames.
+ * SECURITY: Zeroes the old key material for forward secrecy.
  */
 export async function rotateVoiceKey(channelId: string): Promise<void> {
   if (!localKey) return
 
   console.log('[VoiceE2EE] Rotating voice key...')
 
+  // SECURITY: Zero the old key before replacing
+  const oldRawKey = localKey.rawKey
+
   const { key, rawKey, keyId } = await generateVoiceKey()
   localKey = { key, rawKey, keyId }
 
+  // Zero old key after new one is set
+  secureZero(oldRawKey)
+
   await distributeKeyToAllPeers(channelId)
-  console.log(`[VoiceE2EE] Key rotated (new keyId: ${keyId})`)
+  console.log(`[VoiceE2EE] Key rotated (new keyId: ${keyId}, old key zeroed)`)
 }
