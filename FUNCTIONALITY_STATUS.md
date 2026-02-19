@@ -1,6 +1,6 @@
 # BLITE Functionality Status
-**Last Updated:** 2026-02-14
-**Version:** 1.7.2
+**Last Updated:** 2026-02-19
+**Version:** 2.2.9
 
 ## Core Features Status
 
@@ -46,13 +46,13 @@
 - **Registration**: With E2EE key generation
 - **Login**: With key bundle loading
 - **Recovery Keys**: Download on signup
-- **Profile Viewing**: Click avatars to view profiles (v1.7.2)
+- **Profile Viewing**: Click avatars to view profiles (v2.2.9)
 - **Custom Status**: Working
 - **Avatar Upload**: Working (URLs: /uploads/YYYY-MM-DD/uuid.ext)
 - **Presence**: Online/Idle/DND/Offline
 - **Friends System**: Add, remove, accept/reject requests
 - **Blocking**: Block/unblock users
-- **DM Calls**: Call button in friends list (v1.7.2)
+- **DM Calls**: Call button in friends list (v2.2.9)
 
 ### Server Features
 - **Create/Join Servers**: Working
@@ -62,13 +62,10 @@
 - **Moderation**: Kick, ban, permissions
 - **Server Icons**: Upload and display
 
-### Known Issue: Desktop Images
-**Problem**: Desktop app doesn't show room/profile photos
-**Root Cause**: Outdated installers (v1.7.0 didn't include the fix)
-**Solution**: Rebuilding installers now with v1.7.2 code
-**Status**: In progress - building now
+### Desktop Images
+- Fixed — desktop app correctly loads room/profile photos
 
-## Security Status (v1.7.2)
+## Security Status (v2.2.9)
 
 ### SSL/HTTPS
 - Certificate: Let's Encrypt
@@ -155,20 +152,12 @@
 
 ### Web App
 - URL: https://blite.chat
-- Version: 1.7.2
+- Version: 2.2.9
 - Status: Live and working
 - SSL: Enabled
 
 ### Desktop App
-- Windows: Building now (v1.7.2)
-- Linux: Building now (v1.7.2)
+- Windows: Available
+- Linux: Available
 - Mac: Not built yet
 - Auto-update: Configured
-
-## Next Actions
-
-1. Finish building v1.7.2 desktop installers
-2. Deploy installers to server/public/downloads/
-3. Generate update manifest files
-4. Test desktop app image loading
-5. Consider building Mac installer if needed

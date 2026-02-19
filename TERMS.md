@@ -100,7 +100,7 @@ Your use is governed by our Privacy Policy. Key points:
 ## Intellectual Property
 
 - BLITE name, logo, and trademarks are owned by BLITE
-- BLITE code is open-source under [LICENSE]
+- BLITE code is open-source under the [MIT License](https://github.com/blitechat/BLITE/blob/main/LICENSE)
 - You may not use BLITE branding without permission
 
 ## Third-Party Services
@@ -146,10 +146,10 @@ You agree to indemnify and hold BLITE harmless from claims arising from:
 ## Dispute Resolution
 
 ### Governing Law
-These Terms are governed by [Your Jurisdiction] law.
+These Terms are governed by the laws of the United States.
 
 ### Arbitration
-Disputes shall be resolved through binding arbitration under [Arbitration Rules], except:
+Disputes shall be resolved through binding arbitration under the American Arbitration Association rules, except:
 - Small claims court actions
 - Injunctive relief
 - Intellectual property disputes
@@ -173,11 +173,11 @@ These Terms and the Privacy Policy constitute the entire agreement between you a
 
 For questions or legal notices:
 - Email: support@blite.chat
-- Address: [Your Business Address]
+- GitHub: https://github.com/blitechat/BLITE
 
 ## Open Source
 
-BLITE is open-source software. The code is available at [repository URL].
+BLITE is open-source software. The code is available at https://github.com/blitechat/BLITE.
 
 Self-hosted instances are independent and not governed by these Terms. Self-hosters are responsible for their own terms and compliance.
 

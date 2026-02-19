@@ -35,7 +35,7 @@ PORT=3001
 MEDIASOUP_LISTEN_IP=0.0.0.0
 MEDIASOUP_ANNOUNCED_IP=YOUR_SERVER_IP
 MEDIASOUP_RTC_MIN_PORT=40000
-MEDIASOUP_RTC_MAX_PORT=40100
+MEDIASOUP_RTC_MAX_PORT=49999
 MEDIASOUP_NUM_WORKERS=1
 CORS_ORIGIN=http://blite.chat,https://blite.chat
 ```
@@ -47,14 +47,14 @@ CORS_ORIGIN=http://blite.chat,https://blite.chat
 - **TCP 3001** - Node.js server (internal, proxied by Nginx)
 
 #### For Media (WebRTC):
-- **UDP 40000-40100** - Mediasoup RTC media transport
+- **UDP 40000-49999** - Mediasoup RTC media transport
 
 ## Firewall Configuration
 
 ### Local Firewall (iptables) ```bash
 sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 sudo iptables -I INPUT -p tcp --dport 3001 -j ACCEPT
-sudo iptables -I INPUT -p udp --dport 40000:40100 -j ACCEPT
+sudo iptables -I INPUT -p udp --dport 40000:49999 -j ACCEPT
 ```
 
 ### Oracle Cloud Network Security Group
@@ -73,7 +73,7 @@ sudo iptables -I INPUT -p udp --dport 40000:40100 -j ACCEPT
 3. **WebRTC Media**
    - Source: 0.0.0.0/0
    - Protocol: UDP
-   - Port Range: 40000-40100
+   - Port Range: 40000-49999
 
 ## How It Works
 
@@ -92,7 +92,7 @@ Node.js Server (localhost:3001)
 ```
 Client Browser
     ↓ UDP (Direct P2P)
-Oracle Cloud Server (YOUR_SERVER_IP:40000-40100)
+Oracle Cloud Server (YOUR_SERVER_IP:40000-49999)
     ↓
 Mediasoup SFU Worker
 ```
@@ -144,7 +144,7 @@ Look for:
 
 ### 4. Check Server Logs
 ```bash
-tail -f /tmp/claude-1001/-home-ubuntu-BLITE/tasks/b8c6484.output
+docker compose logs -f blite
 ```
 
 Look for:
@@ -157,7 +157,7 @@ Look for:
 
 ### No Audio/Video Working
 
-1. **Check Oracle Cloud NSG has UDP 40000-40100 open**
+1. **Check Oracle Cloud NSG has UDP 40000-49999 open**
    - Most common issue!
    - WebRTC needs these UDP ports for media
 
@@ -174,7 +174,7 @@ Look for:
 
 4. **Test UDP connectivity from client**
    - Use online WebRTC test tools
-   - Should connect to YOUR_SERVER_IP:40000-40100
+   - Should connect to YOUR_SERVER_IP:40000-49999
 
 ### Connection Issues Behind NAT
 
@@ -194,14 +194,14 @@ If clients behind strict NATs can't connect:
 
 Server running with Mediasoup
 Announced IP configured: YOUR_SERVER_IP
-UDP ports configured: 40000-40100
+UDP ports configured: 40000-49999
 Local firewall allows UDP traffic
 WebSocket signaling working
 Voice channel joins working (confirmed in logs)
 
 **Ensure Oracle Cloud NSG allows:**
 - TCP 80 (for HTTP)
-- UDP 40000-40100 (for WebRTC media)
+- UDP 40000-49999 (for WebRTC media)
 
 ## Testing Checklist
 
@@ -218,6 +218,6 @@ Voice channel joins working (confirmed in logs)
 
 For issues, check:
 1. Browser console (F12)
-2. Server logs: `tail -f /tmp/claude-1001/-home-ubuntu-BLITE/tasks/b8c6484.output`
+2. Server logs: `docker compose logs -f blite`
 3. Network tab in browser dev tools
 4. WebRTC internals: chrome://webrtc-internals

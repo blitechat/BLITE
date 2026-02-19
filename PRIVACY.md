@@ -104,4 +104,4 @@ We process data under these legal bases:
 
 ---
 
-**Open Source Notice**: BLITE is open-source software. The code is available for audit at [repository URL]. Self-hosting gives you full control over your data.
+**Open Source Notice**: BLITE is open-source software. The code is available for audit at https://github.com/blitechat/BLITE. Self-hosting gives you full control over your data.

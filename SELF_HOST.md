@@ -7,7 +7,7 @@ BLITE is private by default — all message content is end-to-end encrypted, eve
 3 commands, no port forwarding required:
 
 ```bash
-git clone https://github.com/blitechat/BLITE && cd blite
+git clone https://github.com/blitechat/BLITE && cd BLITE
 bash setup.sh
 # Pick "lite" mode when asked — done.
 ```
@@ -17,24 +17,24 @@ This gives you: text chat, E2EE, file sharing, communities, DMs.
 ## Full Setup (With Voice & Video)
 
 ```bash
-git clone https://github.com/blitechat/BLITE && cd blite
+git clone https://github.com/blitechat/BLITE && cd BLITE
 bash setup.sh
 # Pick "full" mode when asked
 ```
 
-You'll also need to open UDP ports **40000–40100** on your firewall/cloud provider for WebRTC media transport.
+You'll also need to open UDP ports **40000–49999** on your firewall/cloud provider for WebRTC media transport.
 
 ### Firewall Examples
 
 ```bash
 # UFW (Ubuntu)
-sudo ufw allow 40000:40100/udp
+sudo ufw allow 40000:49999/udp
 
 # iptables
-sudo iptables -A INPUT -p udp --dport 40000:40100 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 40000:49999 -j ACCEPT
 
 # AWS Security Group — add inbound rule:
-#   Type: Custom UDP, Port range: 40000-40100, Source: 0.0.0.0/0
+#   Type: Custom UDP, Port range: 40000-49999, Source: 0.0.0.0/0
 ```
 
 ## Custom Domain with HTTPS
@@ -86,14 +86,14 @@ labels:
   - "traefik.http.services.blite.loadbalancer.server.port=3001"
 ```
 
-**Note:** Voice and video (full mode) use WebRTC for media transport, which goes directly over UDP — not through your reverse proxy. You still need UDP ports 40000–40100 open at the firewall level regardless of which proxy you use.
+**Note:** Voice and video (full mode) use WebRTC for media transport, which goes directly over UDP — not through your reverse proxy. You still need UDP ports 40000–49999 open at the firewall level regardless of which proxy you use.
 
 ## Requirements
 
 - A Linux server (any cloud provider works — AWS, DigitalOcean, Hetzner, etc.)
 - Docker and Docker Compose
 - 512 MB RAM minimum (1 GB recommended for full mode)
-- Ports: 3001 (or 80/443 with Caddy), plus 40000-40100/udp for full mode
+- Ports: 3001 (or 80/443 with Caddy), plus 40000-49999/udp for full mode
 
 ## Configuration
 
@@ -106,7 +106,7 @@ All settings live in the `.env` file created by `setup.sh`. Key options:
 | `JWT_SECRET` | auto-generated | Auth token signing key |
 | `MEDIASOUP_ANNOUNCED_IP` | auto-detected | Public IP for WebRTC |
 | `MEDIASOUP_RTC_MIN_PORT` | `40000` | Start of UDP port range |
-| `MEDIASOUP_RTC_MAX_PORT` | `40100` | End of UDP port range |
+| `MEDIASOUP_RTC_MAX_PORT` | `49999` | End of UDP port range |
 
 ## Data
 
@@ -136,7 +136,7 @@ docker compose up -d --build
 ## Troubleshooting
 
 **Voice/video not working in full mode?**
-- Check that UDP ports 40000-40100 are open
+- Check that UDP ports 40000-49999 are open
 - Verify `MEDIASOUP_ANNOUNCED_IP` in `.env` matches your public IP
 - Check logs: `docker compose logs blite`
 

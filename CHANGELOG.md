@@ -17,6 +17,9 @@
 - Fixed DM call bidirectional audio by waiting for E2EE key exchange
 - Fixed nullable email on registration
 
+### Changes
+- **Registration Rate Limit**: Uncapped — self-hosted instances control their own signups
+
 ### Features
 - Added feedback modal with Telegram notifications
 - Added THREAT_MODEL.md documenting all cryptographic protocols and known limitations
