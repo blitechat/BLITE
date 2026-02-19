@@ -51171,7 +51171,7 @@ function LandingPage() {
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { className: "space-y-1 text-blite-text-secondary text-sm", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "• WebRTC Insertable Streams" }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "• AES-128-GCM frame encryption" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "• Keys exchanged via E2E DMs" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "• Ephemeral Curve25519 key exchange" }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "• Server sees only ciphertext" })
                 ] })
               ] })
@@ -51191,7 +51191,7 @@ function LandingPage() {
                 /* @__PURE__ */ jsxRuntimeExports.jsxs(
                   "a",
                   {
-                    href: "https://github.com/blitechat/BLITE/blob/master/SELF_HOST.md",
+                    href: "https://github.com/blitechat/BLITE/blob/main/SELF_HOST.md",
                     target: "_blank",
                     rel: "noopener noreferrer",
                     className: "inline-flex items-center gap-2 text-sm font-medium text-blite-gradient-start hover:underline",

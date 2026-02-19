@@ -268,7 +268,7 @@ export default function LandingPage() {
                         <ul className="space-y-1 text-blite-text-secondary text-sm">
                           <li>• WebRTC Insertable Streams</li>
                           <li>• AES-128-GCM frame encryption</li>
-                          <li>• Keys exchanged via E2E DMs</li>
+                          <li>• Ephemeral Curve25519 key exchange</li>
                           <li>• Server sees only ciphertext</li>
                         </ul>
                       </div>
@@ -289,7 +289,7 @@ export default function LandingPage() {
                           It takes 3 commands with Docker.
                         </p>
                         <a
-                          href="https://github.com/blitechat/BLITE/blob/master/SELF_HOST.md"
+                          href="https://github.com/blitechat/BLITE/blob/main/SELF_HOST.md"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 text-sm font-medium text-blite-gradient-start hover:underline"
