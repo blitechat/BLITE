@@ -210,6 +210,8 @@ export const recoveryKeys = sqliteTable('recovery_keys', {
   userId: text('user_id').primaryKey().references(() => users.id),
   encryptedBlob: text('encrypted_blob').notNull(),
   nonce: text('nonce').notNull(),
+  salt: text('salt'),
+  iterations: integer('iterations'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
