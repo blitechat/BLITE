@@ -18,7 +18,9 @@
     "generate:updates": "node scripts/generate-update-files.js",
     "release": "npm run build:installer && node scripts/copy-release.js && npm run generate:updates",
     "dev:server": "cd server && npm run dev",
-    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\""
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -39,6 +41,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "vitest": "^3.2.6",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@types/react": "^18.3.4",

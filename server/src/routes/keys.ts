@@ -190,7 +190,7 @@ router.get('/prekeys/count', async (req: Request, res: Response): Promise<void> 
 router.post('/recovery', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { encrypted, nonce } = req.body;
+    const { encrypted, nonce, salt, iterations } = req.body;
 
     if (!encrypted || !nonce) {
       res.status(400).json({ error: 'encrypted and nonce are required' });
@@ -209,13 +209,15 @@ router.post('/recovery', async (req: Request, res: Response): Promise<void> => {
     if (existing) {
       await db
         .update(recoveryKeys)
-        .set({ encryptedBlob: encrypted, nonce, updatedAt: now })
+        .set({ encryptedBlob: encrypted, nonce, salt: salt ?? null, iterations: iterations ?? null, updatedAt: now })
         .where(eq(recoveryKeys.userId, userId));
     } else {
       await db.insert(recoveryKeys).values({
         userId,
         encryptedBlob: encrypted,
         nonce,
+        salt: salt ?? null,
+        iterations: iterations ?? null,
         createdAt: now,
         updatedAt: now,
       });
@@ -250,6 +252,8 @@ router.get('/recovery', async (req: Request, res: Response): Promise<void> => {
     res.json({
       encrypted: recovery.encryptedBlob,
       nonce: recovery.nonce,
+      ...(recovery.salt != null && { salt: recovery.salt }),
+      ...(recovery.iterations != null && { iterations: recovery.iterations }),
     });
   } catch (error) {
     console.error('Fetch recovery error:', error);

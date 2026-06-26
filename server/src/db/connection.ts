@@ -313,6 +313,18 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
 `);
 
+// Migration: add salt and iterations columns to recovery_keys table (PBKDF2 support)
+try {
+  sqlite.exec(`ALTER TABLE recovery_keys ADD COLUMN salt TEXT`);
+} catch (e: any) {
+  if (!e.message?.includes('duplicate column')) throw e;
+}
+try {
+  sqlite.exec(`ALTER TABLE recovery_keys ADD COLUMN iterations INTEGER`);
+} catch (e: any) {
+  if (!e.message?.includes('duplicate column')) throw e;
+}
+
 // Create the Drizzle ORM instance
 export const db = drizzle(sqlite, { schema });
 
